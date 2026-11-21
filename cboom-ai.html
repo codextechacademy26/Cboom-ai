@@ -13,6 +13,8 @@ body{background:radial-gradient(ellipse at 50% 36%,#1d1050 0%,#0a0b26 42%,#03050
 body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(0,229,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.06) 1px,transparent 1px);background-size:42px 42px;-webkit-mask-image:radial-gradient(ellipse at 50% 36%,#000 0%,transparent 75%);mask-image:radial-gradient(ellipse at 50% 36%,#000 0%,transparent 75%)}
 body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px)}
 #orb{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+.pw{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);left:0;right:0;text-align:center;font-family:var(--mono);font-size:.64rem;letter-spacing:.22em;text-transform:uppercase;color:var(--mut);z-index:2;pointer-events:none}
+.pw b{font-weight:700;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 0;z-index:3}
 .pill{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:.82rem;letter-spacing:.14em;text-transform:uppercase;color:var(--c1)}
 .pill i{width:9px;height:9px;border-radius:50%;background:var(--c1);box-shadow:0 0 10px var(--c1),0 0 20px var(--c2)}
@@ -57,6 +59,7 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
   <div class="pill"><i></i><span id="nm"></span></div>
   <div style="display:flex;gap:8px"><button class="ic" id="hf" aria-label="Hands-free">∞</button><button class="ic" id="gear" aria-label="Settings">⚙</button></div>
 </div>
+<div class="pw" id="pw"></div>
 <div class="dock">
   <div id="chat"></div>
   <a id="openbtn" href="#"></a>
@@ -86,9 +89,11 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
 
 <script>
 const NAME="Codex AI";
+const POWERED="codextechacademy26";
 const NATIVE=typeof Android!=="undefined"&&!!Android.isNative&&Android.isNative();
 const $=id=>document.getElementById(id);
 $("nm").textContent=NAME;
+$("pw").innerHTML="Powered by <b></b>";$("pw").querySelector("b").textContent=POWERED;
 
 /* ---------- settings ---------- */
 const STYLES={normal:["Normal",1,1],deep:["Deep",.6,.92],bright:["Bright",1.45,1.05],robot:["Robot",.75,.88],fast:["Quick",1.1,1.25],calm:["Calm",.9,.8]};
