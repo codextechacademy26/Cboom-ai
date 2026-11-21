@@ -83,7 +83,7 @@ cat > android/app/src/main/AndroidManifest.xml <<'EOF'
     </queries>
 
     <application
-        android:label="Cboom AI"
+        android:label="Codex AI"
         android:icon="@drawable/ic_launcher"
         android:allowBackup="true">
         <activity
@@ -103,16 +103,33 @@ EOF
 
 cat > android/app/src/main/res/drawable/ic_launcher.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#050007"
+        android:fillColor="#03050D"
         android:pathData="M0,0h108v108h-108z" />
+    <path android:pathData="M54,54m-24,0a24,24 0 1,1 48,0a24,24 0 1,1 -48,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30"
+                android:startY="30"
+                android:endX="78"
+                android:endY="78"
+                android:type="linear">
+                <item android:offset="0" android:color="#00E5FF" />
+                <item android:offset="0.55" android:color="#7C5CFF" />
+                <item android:offset="1" android:color="#FF3DF0" />
+            </gradient>
+        </aapt:attr>
+    </path>
     <path
-        android:fillColor="#FF2A52"
-        android:pathData="M54,54m-28,0a28,28 0 1,1 56,0a28,28 0 1,1 -56,0" />
+        android:fillColor="#00000000"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2"
+        android:pathData="M54,54m-36,0a36,36 0 1,1 72,0a36,36 0 1,1 -72,0" />
 </vector>
 EOF
 
@@ -543,7 +560,7 @@ public class MainActivity extends Activity {
                     Intent i = new Intent(AlarmClock.ACTION_SET_ALARM);
                     i.putExtra(AlarmClock.EXTRA_HOUR, Integer.parseInt(p[0]));
                     i.putExtra(AlarmClock.EXTRA_MINUTES, Integer.parseInt(p[1]));
-                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Cboom AI");
+                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Codex AI");
                     i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
                     startNew(i);
                     return "ok";
@@ -551,7 +568,7 @@ public class MainActivity extends Activity {
                 if (cmd.equals("timer")) {
                     Intent i = new Intent(AlarmClock.ACTION_SET_TIMER);
                     i.putExtra(AlarmClock.EXTRA_LENGTH, Integer.parseInt(arg));
-                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Cboom AI");
+                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Codex AI");
                     i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
                     startNew(i);
                     return "ok";
