@@ -25,6 +25,11 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
 .big{width:74px;height:74px;border-radius:50%;border:0;background:#fff;font-size:1.8rem;cursor:pointer;box-shadow:0 0 26px rgba(255,42,82,.8)}
 .big.live{background:#ff2a52;animation:pl 1s infinite}
 @keyframes pl{50%{transform:scale(1.08)}}
+#openbtn{display:none;width:100%;margin-bottom:10px;padding:13px;border-radius:12px;border:0;background:#ff2a52;color:#fff;font-size:1rem;font-weight:600}
+#openbtn.show{display:block}
+.app{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-top:6px;border-radius:10px;background:#2a0014;font-size:.88rem;word-break:break-all}
+.app button{background:none;border:0;color:#ff7a95;font-size:1.05rem;padding:0 4px}
+.sheet input[type=text]{width:100%;padding:11px;border-radius:10px;background:#2a0014;color:#fff;border:1px solid #ff2a52;font-size:.95rem;margin-top:6px}
 #tf{display:none;gap:8px;margin-top:12px}
 #tf.show{display:flex}
 #ti{flex:1;padding:12px 14px;border-radius:12px;border:1px solid #ff2a52;background:rgba(40,0,12,.85);color:#fff;font-size:1rem;outline:0}
@@ -49,6 +54,7 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
 </div>
 <div class="dock">
   <div id="chat"></div>
+  <button id="openbtn"></button>
   <div id="hint">Tap the glowing orb to speak</div>
   <div class="bar"><button class="ic" id="kb" aria-label="Keyboard">⌨</button><button class="big" id="mic" aria-label="Speak">🎤</button><button class="ic" id="stop" aria-label="Stop">■</button></div>
   <form id="tf"><input id="ti" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
@@ -58,6 +64,12 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
   <label>Voice (from your phone)</label><select id="vsel"></select>
   <label>Style</label><select id="ssel"></select>
   <label>Speed</label><input type="range" id="rate" min="0.6" max="1.5" step="0.05">
+  <label>My apps (teach it an app)</label>
+  <input type="text" id="an" placeholder="App name, e.g. grand mobile">
+  <input type="text" id="ap" placeholder="Package name, e.g. com.grand.launcher">
+  <div class="row"><button id="addapp">Add app</button></div>
+  <div id="appmsg" style="color:#ffb3c2;font-size:.82rem;margin-top:8px"></div>
+  <div id="applist"></div>
   <div class="row"><button id="test">Test voice</button><button class="p" id="close">Done</button></div>
 </div></div>
 
@@ -68,7 +80,7 @@ $("nm").textContent=NAME;
 
 /* ---------- settings ---------- */
 const STYLES={normal:["Normal",1,1],deep:["Deep",.6,.92],bright:["Bright",1.45,1.05],robot:["Robot",.75,.88],fast:["Quick",1.1,1.25],calm:["Calm",.9,.8]};
-let S={voice:"",style:"normal",rate:1,hands:false};
+let S={voice:"",style:"normal",rate:1,hands:false,apps:{}};
 try{Object.assign(S,JSON.parse(localStorage.getItem("cboomai")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("cboomai",JSON.stringify(S))}catch(e){}};
 
@@ -113,7 +125,16 @@ function addMsg(who,text){
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const jokes=["Why do programmers prefer dark mode? Because light attracts bugs.","I told my phone I needed space. Now it won’t stop showing me storage warnings.","Why did the developer go broke? Because he used up all his cache.","There are 10 kinds of people: those who understand binary and those who don’t.","Why was the computer cold? It left its Windows open."];
 const facts=["Honey never spoils. People have found edible honey in ancient tombs.","Octopuses have three hearts.","A day on Venus is longer than a year on Venus.","Bananas are berries, but strawberries are not.","Your brain uses about twenty percent of your body’s energy."];
-const apps={google:"https://www.google.com",youtube:"https://www.youtube.com",whatsapp:"https://wa.me/",tiktok:"https://www.tiktok.com",instagram:"https://www.instagram.com",facebook:"https://www.facebook.com",gmail:"https://mail.google.com",maps:"https://maps.google.com","play store":"https://play.google.com/store",github:"https://github.com"};
+const APPS={whatsapp:["com.whatsapp","https://wa.me/"],youtube:["com.google.android.youtube","https://www.youtube.com"],tiktok:["com.zhiliaoapp.musically","https://www.tiktok.com"],instagram:["com.instagram.android","https://www.instagram.com"],telegram:["org.telegram.messenger","https://web.telegram.org"],facebook:["com.facebook.katana","https://www.facebook.com"],messenger:["com.facebook.orca","https://www.messenger.com"],gmail:["com.google.android.gm","https://mail.google.com"],maps:["com.google.android.apps.maps","https://maps.google.com"],"play store":["com.android.vending","https://play.google.com/store"],chrome:["com.android.chrome","https://www.google.com"],google:["com.google.android.googlequicksearchbox","https://www.google.com"],snapchat:["com.snapchat.android","https://www.snapchat.com"],twitter:["com.twitter.android","https://x.com"],spotify:["com.spotify.music","https://open.spotify.com"],netflix:["com.netflix.mediaclient","https://www.netflix.com"],"grand mobile":["com.grand.launcher","https://play.google.com/store/apps/details?id=com.grand.launcher"],settings:["com.android.settings",""]};
+const appUrl=(pkg,fb)=>"intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package="+pkg+(fb?";S.browser_fallback_url="+encodeURIComponent(fb):"")+";end";
+function findApp(n){
+  const all=Object.assign({},APPS);
+  for(const k in S.apps)all[k]=[S.apps[k],"https://play.google.com/store/apps/details?id="+S.apps[k]];
+  const k=all[n]?n:(n.length>2?Object.keys(all).find(x=>x.length>3&&(n.includes(x)||x.includes(n))):null);
+  return k?appUrl(all[k][0],all[k][1]):null;
+}
+const NW={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9};
+function digits(s){s=s.replace(/\b(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/g,w=>NW[w]);const p=s.trim().startsWith("+")?"+":"";const d=s.replace(/\D/g,"");return d.length>=5?p+d:""}
 const gs=q=>"https://www.google.com/search?q="+encodeURIComponent(q);
 function norm(s){return s.toLowerCase().replace(/[’']/g,"").replace(/[^a-z0-9+\-*/.()\s]/g," ").replace(/\s+/g," ").trim()}
 function think(raw){
@@ -123,7 +144,7 @@ function think(raw){
   if(has("your name","who are you"))return{t:"I’m "+NAME+", your hands-free voice assistant."};
   if(has("who made you","who created you","who built you"))return{t:"I was built by Cboom APKs."};
   if(has("how are you"))return{t:"I’m doing great, thanks for asking. How about you?"};
-  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps like YouTube or WhatsApp, and search Google for you."};
+  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps on your phone, make calls, send texts, and search Google for you."};
   if(has("what time","the time","current time"))return{t:"It’s "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+"."};
   if(has("the date","what day","todays date","date today"))return{t:"Today is "+new Date().toLocaleDateString(undefined,{weekday:"long",year:"numeric",month:"long",day:"numeric"})+"."};
   if(has("flip a coin","toss a coin","coin flip"))return{t:"It’s "+pick(["heads","tails"])+"."};
@@ -133,9 +154,13 @@ function think(raw){
   if(has("thank"))return{t:pick(["You’re welcome!","Anytime!","Happy to help."])};
   if(/^(bye|goodbye|see you)/.test(q))return{t:"Goodbye! Talk to you soon."};
   if(has("weather","temperature","forecast"))return{t:"I can’t check live weather yet. That will work once the AI connection is added. I can search it on Google for you.",go:gs(raw)};
-  if(m=q.match(/^(?:open|launch|start) (.+)$/)){const n=m[1].replace(/^the /,"").replace(/ app$/,"");if(apps[n])return{t:"Opening "+n+".",go:apps[n]};return{t:"I don’t know that app yet. Searching Google for "+n+".",go:gs(n)}}
-  if(m=q.match(/^play (.+)$/))return{t:"Searching YouTube for "+m[1]+".",go:"https://www.youtube.com/results?search_query="+encodeURIComponent(m[1])};
-  if(m=q.match(/^(?:search|google|look up|search for|find) (?:for )?(.+)$/))return{t:"Searching Google for "+m[1]+".",go:gs(m[1])};
+  if(m=raw.toLowerCase().match(/^(?:teach|learn|add) app (.+?) ([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)$/)){S.apps[m[1].trim()]=m[2];save();renderApps();return{t:"Got it. I learned "+m[1].trim()+"."}}
+  if(m=q.match(/^(?:call|dial)\b ?(.*)$/)){const n=digits(m[1]);if(n)return{t:"Calling "+n.split("").join(" ")+".",go:"tel:"+n,label:"Call "+n};return{t:"Opening the dialer.",go:"tel:",label:"Open dialer"}}
+  if(m=q.match(/^(?:text|sms|message) (.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre);if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening a text to "+n.split("").join(" ")+".",go:"sms:"+n+(b?"?body="+encodeURIComponent(b):""),label:"Text "+n}}}
+  if(m=q.match(/^whatsapp (?:to |message )?(.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre).replace("+","");if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening WhatsApp for "+n.split("").join(" ")+".",go:"https://wa.me/"+n+(b?"?text="+encodeURIComponent(b):""),label:"WhatsApp "+n}}}
+  if(m=q.match(/^(?:open|launch|start|run) (.+)$/)){let n=m[1].replace(/ app$/,"").trim(),a=findApp(n);if(!a){n=n.replace(/^(the|my) /,"");a=findApp(n)}if(a)return{t:"Opening "+n+".",go:a,label:"Open "+n};return{t:"I don’t know that app yet. You can teach it in settings under My apps. Searching Google for now.",go:gs(n),label:"Search Google"}}
+  if(m=q.match(/^play (.+)$/))return{t:"Searching YouTube for "+m[1]+".",go:"https://www.youtube.com/results?search_query="+encodeURIComponent(m[1]),label:"Open YouTube search"};
+  if(m=q.match(/^(?:search|google|look up|search for|find) (?:for )?(.+)$/))return{t:"Searching Google for "+m[1]+".",go:gs(m[1]),label:"Open Google search"};
   let e=q.replace(/what is|whats|calculate|how much is|equals|\?/g,"").replace(/plus/g,"+").replace(/minus/g,"-").replace(/multiplied by|times/g,"*").replace(/divided by|over/g,"/").replace(/(\d)\s*x\s*(\d)/g,"$1*$2").trim();
   if(/^[\d+\-*/.()\s]+$/.test(e)&&/\d/.test(e)&&/[+\-*/]/.test(e)){try{const v=Function('"use strict";return ('+e+')')();if(isFinite(v))return{t:"The answer is "+(Math.round(v*1e6)/1e6)+"."}}catch(x){}}
   return{t:"I don’t know that one yet, so I’ll search Google for you.",go:gs(raw)};
@@ -152,7 +177,7 @@ function fillVoices(){
 if(hasTTS){fillVoices();speechSynthesis.onvoiceschanged=fillVoices}
 Object.keys(STYLES).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=STYLES[k][0];$("ssel").appendChild(o)});
 $("ssel").value=S.style;$("rate").value=S.rate;$("hf").classList.toggle("on",S.hands);
-function openUrl(u){try{window.open(u,"_blank")||(location.href=u)}catch(e){location.href=u}}
+function openUrl(u){try{if(/^(intent|tel|sms|mailto):/.test(u)){location.href=u;return}window.open(u,"_blank")||(location.href=u)}catch(e){location.href=u}}
 function speak(text,go){
   if(!hasTTS){setState("idle");if(go)openUrl(go);return}
   speechSynthesis.cancel();
@@ -171,7 +196,7 @@ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null,listening=false;
 function handle(text){
   addMsg("you",text);setState("thinking");hint("Thinking…");
-  const r=think(text);
+  const r=think(text);showOpen(r);
   setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go)},350);
 }
 function listen(){
@@ -186,6 +211,21 @@ function listen(){
   rec.onend=()=>{listening=false;if(fin)handle(fin);else if(state==="listening"){setState("idle");hint("Tap the glowing orb to speak")}};
   try{rec.start()}catch(e){}
 }
+
+/* ---------- open button + my apps ---------- */
+let pend=null;
+function showOpen(r){pend=r.go||null;$("openbtn").textContent=r.label||"Open";$("openbtn").classList.toggle("show",!!r.go)}
+$("openbtn").onclick=()=>{if(pend)openUrl(pend)};
+function renderApps(){
+  const l=$("applist");l.innerHTML="";
+  Object.keys(S.apps).forEach(k=>{const d=document.createElement("div");d.className="app";const sp=document.createElement("span");sp.textContent=k+" · "+S.apps[k];const b=document.createElement("button");b.textContent="✕";b.onclick=()=>{delete S.apps[k];save();renderApps()};d.appendChild(sp);d.appendChild(b);l.appendChild(d)});
+}
+$("addapp").onclick=()=>{
+  const n=$("an").value.trim().toLowerCase(),p=$("ap").value.trim();
+  if(n&&/^[A-Za-z][\w]*(\.[\w]+)+$/.test(p)){S.apps[n]=p;save();$("an").value="";$("ap").value="";$("appmsg").textContent="Added. Say “open "+n+"”.";renderApps()}
+  else $("appmsg").textContent="Enter an app name and a package name like com.example.app";
+};
+renderApps();
 
 /* ---------- events ---------- */
 $("orb").onclick=listen;$("mic").onclick=listen;
