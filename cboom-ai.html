@@ -25,7 +25,7 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
 .big{width:74px;height:74px;border-radius:50%;border:0;background:#fff;font-size:1.8rem;cursor:pointer;box-shadow:0 0 26px rgba(255,42,82,.8)}
 .big.live{background:#ff2a52;animation:pl 1s infinite}
 @keyframes pl{50%{transform:scale(1.08)}}
-#openbtn{display:none;width:100%;margin-bottom:10px;padding:13px;border-radius:12px;border:0;background:#ff2a52;color:#fff;font-size:1rem;font-weight:600}
+#openbtn{display:none;width:100%;margin-bottom:10px;padding:13px;border-radius:12px;background:#ff2a52;color:#fff;font-size:1rem;font-weight:600;text-align:center;text-decoration:none}
 #openbtn.show{display:block}
 .app{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-top:6px;border-radius:10px;background:#2a0014;font-size:.88rem;word-break:break-all}
 .app button{background:none;border:0;color:#ff7a95;font-size:1.05rem;padding:0 4px}
@@ -54,7 +54,7 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
 </div>
 <div class="dock">
   <div id="chat"></div>
-  <button id="openbtn"></button>
+  <a id="openbtn" href="#"></a>
   <div id="hint">Tap the glowing orb to speak</div>
   <div class="bar"><button class="ic" id="kb" aria-label="Keyboard">⌨</button><button class="big" id="mic" aria-label="Speak">🎤</button><button class="ic" id="stop" aria-label="Stop">■</button></div>
   <form id="tf"><input id="ti" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
@@ -64,7 +64,7 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
   <label>Voice (from your phone)</label><select id="vsel"></select>
   <label>Style</label><select id="ssel"></select>
   <label>Speed</label><input type="range" id="rate" min="0.6" max="1.5" step="0.05">
-  <label>My apps (teach it an app)</label>
+  <label>My apps: opens the app’s Play Store page (tap Open there)</label>
   <input type="text" id="an" placeholder="App name, e.g. grand mobile">
   <input type="text" id="ap" placeholder="Package name, e.g. com.grand.launcher">
   <div class="row"><button id="addapp">Add app</button></div>
@@ -75,6 +75,7 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
 
 <script>
 const NAME="Cboom AI";
+const NATIVE=typeof Android!=="undefined"&&!!Android.isNative&&Android.isNative();
 const $=id=>document.getElementById(id);
 $("nm").textContent=NAME;
 
@@ -125,13 +126,16 @@ function addMsg(who,text){
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const jokes=["Why do programmers prefer dark mode? Because light attracts bugs.","I told my phone I needed space. Now it won’t stop showing me storage warnings.","Why did the developer go broke? Because he used up all his cache.","There are 10 kinds of people: those who understand binary and those who don’t.","Why was the computer cold? It left its Windows open."];
 const facts=["Honey never spoils. People have found edible honey in ancient tombs.","Octopuses have three hearts.","A day on Venus is longer than a year on Venus.","Bananas are berries, but strawberries are not.","Your brain uses about twenty percent of your body’s energy."];
-const APPS={whatsapp:["com.whatsapp","https://wa.me/"],youtube:["com.google.android.youtube","https://www.youtube.com"],tiktok:["com.zhiliaoapp.musically","https://www.tiktok.com"],instagram:["com.instagram.android","https://www.instagram.com"],telegram:["org.telegram.messenger","https://web.telegram.org"],facebook:["com.facebook.katana","https://www.facebook.com"],messenger:["com.facebook.orca","https://www.messenger.com"],gmail:["com.google.android.gm","https://mail.google.com"],maps:["com.google.android.apps.maps","https://maps.google.com"],"play store":["com.android.vending","https://play.google.com/store"],chrome:["com.android.chrome","https://www.google.com"],google:["com.google.android.googlequicksearchbox","https://www.google.com"],snapchat:["com.snapchat.android","https://www.snapchat.com"],twitter:["com.twitter.android","https://x.com"],spotify:["com.spotify.music","https://open.spotify.com"],netflix:["com.netflix.mediaclient","https://www.netflix.com"],"grand mobile":["com.grand.launcher","https://play.google.com/store/apps/details?id=com.grand.launcher"],settings:["com.android.settings",""]};
-const appUrl=(pkg,fb)=>"intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package="+pkg+(fb?";S.browser_fallback_url="+encodeURIComponent(fb):"")+";end";
+const APPS={whatsapp:["com.whatsapp","wa.me","https","https://wa.me/"],youtube:["com.google.android.youtube","www.youtube.com","https","https://www.youtube.com"],tiktok:["com.zhiliaoapp.musically","www.tiktok.com","https","https://www.tiktok.com"],instagram:["com.instagram.android","www.instagram.com","https","https://www.instagram.com"],telegram:["org.telegram.messenger","t.me","https","https://web.telegram.org"],facebook:["com.facebook.katana","www.facebook.com","https","https://www.facebook.com"],messenger:["com.facebook.orca","m.me","https","https://www.messenger.com"],gmail:["com.google.android.gm","","mailto","https://mail.google.com"],maps:["com.google.android.apps.maps","maps.google.com","https","https://maps.google.com"],"play store":["com.android.vending","play.google.com","https","https://play.google.com/store"],snapchat:["com.snapchat.android","www.snapchat.com","https","https://www.snapchat.com"],twitter:["com.twitter.android","x.com","https","https://x.com"],spotify:["com.spotify.music","open.spotify.com","https","https://open.spotify.com"],netflix:["com.netflix.mediaclient","www.netflix.com","https","https://www.netflix.com"]};
+const WEB={google:"https://www.google.com",chrome:"https://www.google.com","grand mobile":"https://play.google.com/store/apps/details?id=com.grand.launcher"};
+const appUrl=a=>"intent://"+a[1]+(a[1]?"/":"")+"#Intent;scheme="+a[2]+";package="+a[0]+";S.browser_fallback_url="+encodeURIComponent(a[3])+";end";
 function findApp(n){
-  const all=Object.assign({},APPS);
-  for(const k in S.apps)all[k]=[S.apps[k],"https://play.google.com/store/apps/details?id="+S.apps[k]];
+  const all={};
+  for(const k in APPS)all[k]=appUrl(APPS[k]);
+  for(const k in WEB)all[k]=WEB[k];
+  for(const k in S.apps)all[k]="https://play.google.com/store/apps/details?id="+S.apps[k];
   const k=all[n]?n:(n.length>2?Object.keys(all).find(x=>x.length>3&&(n.includes(x)||x.includes(n))):null);
-  return k?appUrl(all[k][0],all[k][1]):null;
+  return k?all[k]:null;
 }
 const NW={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9};
 function digits(s){s=s.replace(/\b(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/g,w=>NW[w]);const p=s.trim().startsWith("+")?"+":"";const d=s.replace(/\D/g,"");return d.length>=5?p+d:""}
@@ -155,10 +159,10 @@ function think(raw){
   if(/^(bye|goodbye|see you)/.test(q))return{t:"Goodbye! Talk to you soon."};
   if(has("weather","temperature","forecast"))return{t:"I can’t check live weather yet. That will work once the AI connection is added. I can search it on Google for you.",go:gs(raw)};
   if(m=raw.toLowerCase().match(/^(?:teach|learn|add) app (.+?) ([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)$/)){S.apps[m[1].trim()]=m[2];save();renderApps();return{t:"Got it. I learned "+m[1].trim()+"."}}
-  if(m=q.match(/^(?:call|dial)\b ?(.*)$/)){const n=digits(m[1]);if(n)return{t:"Calling "+n.split("").join(" ")+".",go:"tel:"+n,label:"Call "+n};return{t:"Opening the dialer.",go:"tel:",label:"Open dialer"}}
-  if(m=q.match(/^(?:text|sms|message) (.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre);if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening a text to "+n.split("").join(" ")+".",go:"sms:"+n+(b?"?body="+encodeURIComponent(b):""),label:"Text "+n}}}
-  if(m=q.match(/^whatsapp (?:to |message )?(.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre).replace("+","");if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening WhatsApp for "+n.split("").join(" ")+".",go:"https://wa.me/"+n+(b?"?text="+encodeURIComponent(b):""),label:"WhatsApp "+n}}}
-  if(m=q.match(/^(?:open|launch|start|run) (.+)$/)){let n=m[1].replace(/ app$/,"").trim(),a=findApp(n);if(!a){n=n.replace(/^(the|my) /,"");a=findApp(n)}if(a)return{t:"Opening "+n+".",go:a,label:"Open "+n};return{t:"I don’t know that app yet. You can teach it in settings under My apps. Searching Google for now.",go:gs(n),label:"Search Google"}}
+  if(m=q.match(/^(?:call|dial)\b ?(.*)$/)){const n=digits(m[1]);if(n)return{t:"Calling "+n.split("").join(" ")+(NATIVE?".":". Tap the Call button."),go:"tel:"+n,label:"Call "+n,act:{k:"call",n:n}};return{t:"Opening the dialer.",go:"tel:",label:"Open dialer",act:{k:"url",u:"tel:"}}}
+  if(m=q.match(/^(?:text|sms|message) (.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre);if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening a text to "+n.split("").join(" ")+".",go:"sms:"+n+(b?"?body="+encodeURIComponent(b):""),label:"Text "+n,act:{k:"sms",n:n,b:b}}}}
+  if(m=q.match(/^whatsapp (?:to |message )?(.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre).replace("+","");if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening WhatsApp for "+n.split("").join(" ")+".",go:"https://wa.me/"+n+(b?"?text="+encodeURIComponent(b):""),label:"WhatsApp "+n,act:{k:"wa",n:n,b:b}}}}
+  if(m=q.match(/^(?:open|launch|start|run) (.+)$/)){let n=m[1].replace(/ app$/,"").trim(),a=findApp(n);if(!a){n=n.replace(/^(the|my) /,"");a=findApp(n)}if(NATIVE)return{t:"Opening "+n+".",act:{k:"app",name:n}};if(a)return{t:a.startsWith("intent:")?"Opening "+n+". Tap the Open button.":"Opening "+n+". Tap the Open button on the page.",go:a,label:"Open "+n};return{t:"I don’t know that app yet. You can teach it in settings under My apps. Searching Google for now.",go:gs(n),label:"Search Google"}}
   if(m=q.match(/^play (.+)$/))return{t:"Searching YouTube for "+m[1]+".",go:"https://www.youtube.com/results?search_query="+encodeURIComponent(m[1]),label:"Open YouTube search"};
   if(m=q.match(/^(?:search|google|look up|search for|find) (?:for )?(.+)$/))return{t:"Searching Google for "+m[1]+".",go:gs(m[1]),label:"Open Google search"};
   let e=q.replace(/what is|whats|calculate|how much is|equals|\?/g,"").replace(/plus/g,"+").replace(/minus/g,"-").replace(/multiplied by|times/g,"*").replace(/divided by|over/g,"/").replace(/(\d)\s*x\s*(\d)/g,"$1*$2").trim();
@@ -167,28 +171,41 @@ function think(raw){
 }
 
 /* ---------- voice output ---------- */
-const hasTTS="speechSynthesis" in window;
-const vlist=()=>hasTTS?speechSynthesis.getVoices():[];
+const hasTTS=NATIVE||"speechSynthesis" in window;
+const vlist=()=>hasTTS&&!NATIVE?speechSynthesis.getVoices():[];
 function fillVoices(){
+  if(NATIVE){let nv=[];try{nv=JSON.parse(Android.getVoices())}catch(e){}$("vsel").innerHTML=nv.length?"":"<option>Default voice</option>";nv.forEach(x=>{const o=document.createElement("option");o.value=x.name;o.textContent=x.label;if(x.name===S.voice)o.selected=true;$("vsel").appendChild(o)});return}
   let v=vlist();const en=v.filter(x=>/^en/i.test(x.lang));if(en.length)v=en;
   $("vsel").innerHTML=v.length?"":"<option>Default voice</option>";
   v.forEach(x=>{const o=document.createElement("option");o.value=x.voiceURI;o.textContent=x.name+" ("+x.lang+")";if(x.voiceURI===S.voice)o.selected=true;$("vsel").appendChild(o)});
 }
-if(hasTTS){fillVoices();speechSynthesis.onvoiceschanged=fillVoices}
+if(NATIVE){fillVoices();setTimeout(fillVoices,1500)}else if(hasTTS){fillVoices();speechSynthesis.onvoiceschanged=fillVoices}
 Object.keys(STYLES).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=STYLES[k][0];$("ssel").appendChild(o)});
 $("ssel").value=S.style;$("rate").value=S.rate;$("hf").classList.toggle("on",S.hands);
 function openUrl(u){try{if(/^(intent|tel|sms|mailto):/.test(u)){location.href=u;return}window.open(u,"_blank")||(location.href=u)}catch(e){location.href=u}}
-function speak(text,go){
+let curEnd=null;
+function speak(text,go,act){
+  const st=STYLES[S.style]||STYLES.normal;
+  let done=false;
+  const end=()=>{if(done)return;done=true;setState("idle");if(go||act){if(NATIVE)nativePerform(go,act);else if(go&&/^https?:/.test(go))openUrl(go)}else if(S.hands)setTimeout(listen,350)};
+  if(NATIVE){curEnd=end;setState("speaking");setTimeout(end,30000);Android.speak(text,S.voice||"",st[1],Math.min(2,S.rate*st[2]));return}
   if(!hasTTS){setState("idle");if(go)openUrl(go);return}
   speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(text),v=vlist().find(x=>x.voiceURI===S.voice),st=STYLES[S.style]||STYLES.normal;
+  const u=new SpeechSynthesisUtterance(text),v=vlist().find(x=>x.voiceURI===S.voice);
   if(v){u.voice=v;u.lang=v.lang}
   u.pitch=st[1];u.rate=Math.min(2,S.rate*st[2]);
   setState("speaking");
-  let done=false;
-  const end=()=>{if(done)return;done=true;setState("idle");if(go)openUrl(go);else if(S.hands)setTimeout(listen,350)};
   u.onend=end;u.onerror=end;
   speechSynthesis.speak(u);
+}
+function nativePerform(go,a){
+  if(a){
+    if(a.k==="call")Android.call(a.n);
+    else if(a.k==="sms")Android.sms(a.n,a.b||"");
+    else if(a.k==="wa")Android.openUrl("https://wa.me/"+a.n+(a.b?"?text="+encodeURIComponent(a.b):""));
+    else if(a.k==="url")Android.openUrl(a.u);
+    else if(a.k==="app"){if(!Android.openApp(a.name)){const m="I couldn’t find an app called "+a.name+" on your phone.";addMsg("ai",m);hint(m);speak(m)}}
+  }else if(go)Android.openUrl(go);
 }
 
 /* ---------- voice input ---------- */
@@ -197,9 +214,10 @@ let rec=null,listening=false;
 function handle(text){
   addMsg("you",text);setState("thinking");hint("Thinking…");
   const r=think(text);showOpen(r);
-  setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go)},350);
+  setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go,r.act)},350);
 }
 function listen(){
+  if(NATIVE){if(listening){Android.stopListen();return}Android.stopSpeak();Android.listen();return}
   if(!SR){hint("Voice input isn’t available here. Use the keyboard button to type.");return}
   if(listening){try{rec.stop()}catch(e){}return}
   if(hasTTS)speechSynthesis.cancel();
@@ -214,8 +232,7 @@ function listen(){
 
 /* ---------- open button + my apps ---------- */
 let pend=null;
-function showOpen(r){pend=r.go||null;$("openbtn").textContent=r.label||"Open";$("openbtn").classList.toggle("show",!!r.go)}
-$("openbtn").onclick=()=>{if(pend)openUrl(pend)};
+function showOpen(r){if(NATIVE)return;pend=r.go||null;const b=$("openbtn");b.textContent=r.label||"Open";if(r.go){b.href=r.go;b.target=/^https?:/.test(r.go)?"_blank":"_self"}b.classList.toggle("show",!!r.go)}
 function renderApps(){
   const l=$("applist");l.innerHTML="";
   Object.keys(S.apps).forEach(k=>{const d=document.createElement("div");d.className="app";const sp=document.createElement("span");sp.textContent=k+" · "+S.apps[k];const b=document.createElement("button");b.textContent="✕";b.onclick=()=>{delete S.apps[k];save();renderApps()};d.appendChild(sp);d.appendChild(b);l.appendChild(d)});
@@ -227,13 +244,21 @@ $("addapp").onclick=()=>{
 };
 renderApps();
 
+/* ---------- native app callbacks ---------- */
+window.nativeListening=()=>{listening=true;setState("listening");hint("Listening…")};
+window.nativePartial=t=>hint(t||"Listening…");
+window.nativeResult=t=>{listening=false;handle(t)};
+window.nativeError=c=>{listening=false;setState("idle");hint(c==="blocked"?"Microphone permission needed. Allow it, then tap again.":c==="none"?"I didn’t catch that. Tap to try again.":c==="unavailable"?"Speech recognition isn’t available. Enable the Google app.":"Something went wrong. Tap to try again.")};
+window.nativeSpeakStart=()=>setState("speaking");
+window.nativeSpeakEnd=()=>{if(curEnd)curEnd()};
+
 /* ---------- events ---------- */
 $("orb").onclick=listen;$("mic").onclick=listen;
-$("stop").onclick=()=>{if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Tap the glowing orb to speak")};
+$("stop").onclick=()=>{if(NATIVE){Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Tap the glowing orb to speak")};
 $("kb").onclick=()=>{$("tf").classList.toggle("show");if($("tf").classList.contains("show"))$("ti").focus()};
 $("tf").onsubmit=e=>{e.preventDefault();const v=$("ti").value.trim();if(v){$("ti").value="";handle(v)}};
 $("hf").onclick=()=>{S.hands=!S.hands;$("hf").classList.toggle("on",S.hands);save();hint(S.hands?"Hands-free is on":"Hands-free is off")};
-$("gear").onclick=()=>$("set").classList.add("show");
+$("gear").onclick=()=>{if(NATIVE)fillVoices();$("set").classList.add("show")};
 $("close").onclick=()=>$("set").classList.remove("show");
 $("vsel").onchange=e=>{S.voice=e.target.value;save()};
 $("ssel").onchange=e=>{S.style=e.target.value;save()};

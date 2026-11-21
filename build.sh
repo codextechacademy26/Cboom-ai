@@ -1,0 +1,523 @@
+#!/bin/bash
+# Builds the Cboom AI Android app from cboom-ai.html (run by GitHub Actions)
+set -e
+
+rm -rf android build-out
+mkdir -p android/app/src/main/java/com/cboom/ai android/app/src/main/assets android/app/src/main/res/drawable build-out
+
+cat > android/settings.gradle <<'EOF'
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "CboomAI"
+include ':app'
+EOF
+
+cat > android/build.gradle <<'EOF'
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
+EOF
+
+cat > android/gradle.properties <<'EOF'
+org.gradle.jvmargs=-Xmx2g
+android.nonTransitiveRClass=true
+EOF
+
+cat > android/app/build.gradle <<'EOF'
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.cboom.ai'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.cboom.ai"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+EOF
+
+cat > android/app/src/main/AndroidManifest.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:label="Cboom AI"
+        android:icon="@drawable/ic_launcher"
+        android:allowBackup="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+EOF
+
+cat > android/app/src/main/res/drawable/ic_launcher.xml <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#050007"
+        android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="#FF2A52"
+        android:pathData="M54,54m-28,0a28,28 0 1,1 56,0a28,28 0 1,1 -56,0" />
+</vector>
+EOF
+
+cat > android/app/src/main/java/com/cboom/ai/MainActivity.java <<'EOF'
+package com.cboom.ai;
+
+import android.Manifest;
+import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
+import android.os.Bundle;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+public class MainActivity extends Activity {
+
+    private WebView web;
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private SpeechRecognizer recognizer;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        web = new WebView(this);
+        setContentView(web);
+        web.setBackgroundColor(0xFF050007);
+
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+
+        web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String u = request.getUrl().toString();
+                if (u.startsWith("file:")) {
+                    return false;
+                }
+                openExternal(u);
+                return true;
+            }
+        });
+        web.addJavascriptInterface(new Bridge(), "Android");
+
+        tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                ttsReady = (status == TextToSpeech.SUCCESS);
+                if (ttsReady) {
+                    tts.setLanguage(Locale.US);
+                    tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                        @Override
+                        public void onStart(String id) {
+                            js("nativeSpeakStart()");
+                        }
+
+                        @Override
+                        public void onDone(String id) {
+                            js("nativeSpeakEnd()");
+                        }
+
+                        @Override
+                        public void onError(String id) {
+                            js("nativeSpeakEnd()");
+                        }
+                    });
+                }
+            }
+        });
+
+        requestPermissions(new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.CALL_PHONE
+        }, 1);
+
+        web.loadUrl("file:///android_asset/index.html");
+    }
+
+    private void js(final String code) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                web.evaluateJavascript("try{" + code + "}catch(e){}", null);
+            }
+        });
+    }
+
+    private void openExternal(final String url) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    // nothing can open this link
+                }
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (recognizer != null) {
+            recognizer.destroy();
+        }
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
+    }
+
+    class Bridge {
+
+        @JavascriptInterface
+        public boolean isNative() {
+            return true;
+        }
+
+        @JavascriptInterface
+        public String getVoices() {
+            JSONArray arr = new JSONArray();
+            try {
+                if (tts != null && ttsReady) {
+                    Set<Voice> vs = tts.getVoices();
+                    if (vs != null) {
+                        List<Voice> list = new ArrayList<Voice>();
+                        for (Voice v : vs) {
+                            if ("en".equals(v.getLocale().getLanguage())) {
+                                list.add(v);
+                            }
+                        }
+                        Collections.sort(list, new java.util.Comparator<Voice>() {
+                            @Override
+                            public int compare(Voice a, Voice b) {
+                                return a.getName().compareTo(b.getName());
+                            }
+                        });
+                        int n = 1;
+                        for (Voice v : list) {
+                            JSONObject o = new JSONObject();
+                            o.put("name", v.getName());
+                            o.put("label", "Voice " + n + " - " + v.getLocale().getDisplayName()
+                                    + (v.isNetworkConnectionRequired() ? " (online)" : ""));
+                            arr.put(o);
+                            n++;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // return what we have
+            }
+            return arr.toString();
+        }
+
+        @JavascriptInterface
+        public void speak(final String text, final String voice, final float pitch, final float rate) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (tts == null || !ttsReady) {
+                        js("nativeSpeakEnd()");
+                        return;
+                    }
+                    try {
+                        if (voice != null && voice.length() > 0) {
+                            Set<Voice> vs = tts.getVoices();
+                            if (vs != null) {
+                                for (Voice v : vs) {
+                                    if (v.getName().equals(voice)) {
+                                        tts.setVoice(v);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        tts.setPitch(pitch);
+                        tts.setSpeechRate(rate);
+                        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "u" + System.nanoTime());
+                    } catch (Exception e) {
+                        js("nativeSpeakEnd()");
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopSpeak() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (tts != null) {
+                        tts.stop();
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void listen() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2);
+                        js("nativeError('blocked')");
+                        return;
+                    }
+                    if (!SpeechRecognizer.isRecognitionAvailable(MainActivity.this)) {
+                        js("nativeError('unavailable')");
+                        return;
+                    }
+                    if (recognizer != null) {
+                        recognizer.destroy();
+                    }
+                    recognizer = SpeechRecognizer.createSpeechRecognizer(MainActivity.this);
+                    recognizer.setRecognitionListener(new RecognitionListener() {
+                        @Override
+                        public void onReadyForSpeech(Bundle params) {
+                            js("nativeListening()");
+                        }
+
+                        @Override
+                        public void onBeginningOfSpeech() {
+                        }
+
+                        @Override
+                        public void onRmsChanged(float rmsdB) {
+                        }
+
+                        @Override
+                        public void onBufferReceived(byte[] buffer) {
+                        }
+
+                        @Override
+                        public void onEndOfSpeech() {
+                        }
+
+                        @Override
+                        public void onError(int error) {
+                            String c = "other";
+                            if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                                c = "none";
+                            } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                                c = "blocked";
+                            }
+                            js("nativeError('" + c + "')");
+                        }
+
+                        @Override
+                        public void onResults(Bundle results) {
+                            ArrayList<String> l = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                            if (l != null && l.size() > 0) {
+                                js("nativeResult(" + JSONObject.quote(l.get(0)) + ")");
+                            } else {
+                                js("nativeError('none')");
+                            }
+                        }
+
+                        @Override
+                        public void onPartialResults(Bundle partialResults) {
+                            ArrayList<String> l = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                            if (l != null && l.size() > 0) {
+                                js("nativePartial(" + JSONObject.quote(l.get(0)) + ")");
+                            }
+                        }
+
+                        @Override
+                        public void onEvent(int eventType, Bundle params) {
+                        }
+                    });
+                    Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                    i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                    i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US");
+                    i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                    recognizer.startListening(i);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopListen() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (recognizer != null) {
+                        recognizer.stopListening();
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void call(final String number) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        boolean ok = checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED;
+                        Intent i = new Intent(ok ? Intent.ACTION_CALL : Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number)));
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                    } catch (Exception e) {
+                        // could not start the call
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean sms(String number, String body) {
+            String u = "sms:" + number;
+            if (body != null && body.length() > 0) {
+                u += "?body=" + Uri.encode(body);
+            }
+            openExternal(u);
+            return true;
+        }
+
+        @JavascriptInterface
+        public void openUrl(String url) {
+            openExternal(url);
+        }
+
+        @JavascriptInterface
+        public String openApp(String name) {
+            try {
+                PackageManager pm = getPackageManager();
+                String q = name.toLowerCase(Locale.ROOT).trim();
+                if (q.contains(".") && !q.contains(" ")) {
+                    Intent direct = pm.getLaunchIntentForPackage(q);
+                    if (direct != null) {
+                        direct.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(direct);
+                        return q;
+                    }
+                }
+                Intent main = new Intent(Intent.ACTION_MAIN);
+                main.addCategory(Intent.CATEGORY_LAUNCHER);
+                List<ResolveInfo> list = pm.queryIntentActivities(main, 0);
+                ResolveInfo best = null;
+                String bestLabel = "";
+                for (ResolveInfo r : list) {
+                    String label = r.loadLabel(pm).toString();
+                    String l = label.toLowerCase(Locale.ROOT);
+                    if (l.equals(q)) {
+                        best = r;
+                        bestLabel = label;
+                        break;
+                    }
+                    if (best == null && l.length() > 2 && (l.contains(q) || q.contains(l))) {
+                        best = r;
+                        bestLabel = label;
+                    }
+                }
+                if (best != null) {
+                    Intent li = pm.getLaunchIntentForPackage(best.activityInfo.packageName);
+                    if (li != null) {
+                        li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(li);
+                        return bestLabel;
+                    }
+                }
+            } catch (Exception e) {
+                // fall through
+            }
+            return "";
+        }
+    }
+}
+EOF
+
+# put the web app inside the Android app
+cp cboom-ai.html android/app/src/main/assets/index.html
+
+cd android
+gradle assembleDebug --no-daemon --stacktrace
+cd ..
+cp android/app/build/outputs/apk/debug/app-debug.apk build-out/CboomAI.apk
+ls -la build-out
