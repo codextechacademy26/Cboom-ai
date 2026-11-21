@@ -124,6 +124,8 @@ function addMsg(who,text){
 
 /* ---------- brain (offline answers for now) ---------- */
 const pick=a=>a[Math.floor(Math.random()*a.length)];
+const dev=(c,a)=>NATIVE?Android.device(c,a||""):"";
+const NOAPP="That works in the Cboom AI app.";
 const jokes=["Why do programmers prefer dark mode? Because light attracts bugs.","I told my phone I needed space. Now it won’t stop showing me storage warnings.","Why did the developer go broke? Because he used up all his cache.","There are 10 kinds of people: those who understand binary and those who don’t.","Why was the computer cold? It left its Windows open."];
 const facts=["Honey never spoils. People have found edible honey in ancient tombs.","Octopuses have three hearts.","A day on Venus is longer than a year on Venus.","Bananas are berries, but strawberries are not.","Your brain uses about twenty percent of your body’s energy."];
 const APPS={whatsapp:["com.whatsapp","wa.me","https","https://wa.me/"],youtube:["com.google.android.youtube","www.youtube.com","https","https://www.youtube.com"],tiktok:["com.zhiliaoapp.musically","www.tiktok.com","https","https://www.tiktok.com"],instagram:["com.instagram.android","www.instagram.com","https","https://www.instagram.com"],telegram:["org.telegram.messenger","t.me","https","https://web.telegram.org"],facebook:["com.facebook.katana","www.facebook.com","https","https://www.facebook.com"],messenger:["com.facebook.orca","m.me","https","https://www.messenger.com"],gmail:["com.google.android.gm","","mailto","https://mail.google.com"],maps:["com.google.android.apps.maps","maps.google.com","https","https://maps.google.com"],"play store":["com.android.vending","play.google.com","https","https://play.google.com/store"],snapchat:["com.snapchat.android","www.snapchat.com","https","https://www.snapchat.com"],twitter:["com.twitter.android","x.com","https","https://x.com"],spotify:["com.spotify.music","open.spotify.com","https","https://open.spotify.com"],netflix:["com.netflix.mediaclient","www.netflix.com","https","https://www.netflix.com"]};
@@ -148,7 +150,7 @@ function think(raw){
   if(has("your name","who are you"))return{t:"I’m "+NAME+", your hands-free voice assistant."};
   if(has("who made you","who created you","who built you"))return{t:"I was built by Cboom APKs."};
   if(has("how are you"))return{t:"I’m doing great, thanks for asking. How about you?"};
-  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps on your phone, make calls, send texts, and search Google for you."};
+  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps on your phone, make calls, send texts, control the flashlight and volume, set alarms and timers, check the battery, open the camera, and search Google for you."};
   if(has("what time","the time","current time"))return{t:"It’s "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+"."};
   if(has("the date","what day","todays date","date today"))return{t:"Today is "+new Date().toLocaleDateString(undefined,{weekday:"long",year:"numeric",month:"long",day:"numeric"})+"."};
   if(has("flip a coin","toss a coin","coin flip"))return{t:"It’s "+pick(["heads","tails"])+"."};
@@ -158,6 +160,13 @@ function think(raw){
   if(has("thank"))return{t:pick(["You’re welcome!","Anytime!","Happy to help."])};
   if(/^(bye|goodbye|see you)/.test(q))return{t:"Goodbye! Talk to you soon."};
   if(has("weather","temperature","forecast"))return{t:"I can’t check live weather yet. That will work once the AI connection is added. I can search it on Google for you.",go:gs(raw)};
+  if(has("flashlight","flash light","torch")){if(!NATIVE)return{t:NOAPP};const a=/\boff\b/.test(q)?"off":/\bon\b/.test(q)?"on":"toggle",r=dev("torch",a);return{t:r==="none"?"I couldn’t find a flashlight on this phone.":r==="on"?"Flashlight on.":r==="off"?"Flashlight off.":"I couldn’t reach the flashlight."}}
+  if(has("volume","louder","quieter")||/^(mute|unmute)\b/.test(q)){if(!NATIVE)return{t:NOAPP};const n=q.match(/\b(\d{1,3})\b/),a=n?n[1]:/\b(up|increase|raise|louder)\b/.test(q)?"up":/\b(down|decrease|lower|reduce|quieter)\b/.test(q)?"down":/\b(max|maximum|full)\b/.test(q)?"max":/\bmute\b/.test(q)?"mute":"up",r=dev("volume",a);return{t:a==="mute"?"Muted.":"Volume is at "+r+" percent."}}
+  if(m=q.match(/alarm (?:for|at) (\d{1,2})(?: (\d{2}))? ?(a m|p m|am|pm)?/)){if(!NATIVE)return{t:NOAPP};let h=+m[1];const mi=+(m[2]||0),pm=!!m[3]&&m[3][0]==="p";if(pm&&h<12)h+=12;if(!pm&&m[3]&&h===12)h=0;if(h>23||mi>59)return{t:"That time doesn’t look right. Try again."};const r=dev("alarm",h+":"+mi);return{t:r==="ok"?"Alarm set for "+(h%12||12)+":"+String(mi).padStart(2,"0")+(h>=12?" PM":" AM")+".":"I couldn’t set the alarm."}}
+  if(m=q.match(/timer (?:for )?(\d+) (second|minute|hour)s?/)||q.match(/(\d+) (second|minute|hour)s? timer/)){if(!NATIVE)return{t:NOAPP};const n=+m[1],sec=n*(m[2]==="hour"?3600:m[2]==="minute"?60:1),r=dev("timer",String(sec));return{t:r==="ok"?"Timer set for "+n+" "+m[2]+(n>1?"s":"")+".":"I couldn’t set the timer."}}
+  if(has("battery")){if(!NATIVE)return{t:NOAPP};const r=dev("battery").split(",");return{t:r.length>1?"Your battery is at "+r[0]+" percent and "+r[1]+".":"I couldn’t read the battery."}}
+  if(has("wifi","wi fi","bluetooth")){const bt=has("bluetooth");return NATIVE?{t:"I can’t switch it on or off myself on newer Android, so I’m opening the "+(bt?"Bluetooth":"Wi-Fi")+" settings.",act:{k:"dev",c:bt?"bluetooth":"wifi",a:""}}:{t:NOAPP}}
+  if(has("camera","take a photo","take a picture","selfie")){return NATIVE?{t:"Opening the camera.",act:{k:"dev",c:"camera",a:""}}:{t:NOAPP}}
   if(m=raw.toLowerCase().match(/^(?:teach|learn|add) app (.+?) ([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)$/)){S.apps[m[1].trim()]=m[2];save();renderApps();return{t:"Got it. I learned "+m[1].trim()+"."}}
   if(m=q.match(/^(?:call|dial)\b ?(.*)$/)){const n=digits(m[1]);if(n)return{t:"Calling "+n.split("").join(" ")+(NATIVE?".":". Tap the Call button."),go:"tel:"+n,label:"Call "+n,act:{k:"call",n:n}};return{t:"Opening the dialer.",go:"tel:",label:"Open dialer",act:{k:"url",u:"tel:"}}}
   if(m=q.match(/^(?:text|sms|message) (.+)$/)){const pre=m[1].split(/ (?:saying|say|that says|with) /)[0],n=digits(pre);if(n){const b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"";return{t:"Opening a text to "+n.split("").join(" ")+".",go:"sms:"+n+(b?"?body="+encodeURIComponent(b):""),label:"Text "+n,act:{k:"sms",n:n,b:b}}}}
@@ -204,6 +213,7 @@ function nativePerform(go,a){
     else if(a.k==="sms")Android.sms(a.n,a.b||"");
     else if(a.k==="wa")Android.openUrl("https://wa.me/"+a.n+(a.b?"?text="+encodeURIComponent(a.b):""));
     else if(a.k==="url")Android.openUrl(a.u);
+    else if(a.k==="dev")Android.device(a.c,a.a||"");
     else if(a.k==="app"){if(!Android.openApp(a.name)){const m="I couldn’t find an app called "+a.name+" on your phone.";addMsg("ai",m);hint(m);speak(m)}}
   }else if(go)Android.openUrl(go);
 }

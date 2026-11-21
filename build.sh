@@ -67,6 +67,7 @@ cat > android/app/src/main/AndroidManifest.xml <<'EOF'
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <queries>
         <intent>
@@ -120,11 +121,20 @@ package com.cboom.ai;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.media.AudioManager;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Bundle;
+import android.provider.AlarmClock;
+import android.provider.MediaStore;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -463,6 +473,114 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openUrl(String url) {
             openExternal(url);
+        }
+
+        private boolean torchOn = false;
+
+        private void startNew(Intent i) {
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        }
+
+        private String torch(String arg) throws Exception {
+            CameraManager cm = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            String id = null;
+            for (String c : cm.getCameraIdList()) {
+                CameraCharacteristics ch = cm.getCameraCharacteristics(c);
+                Boolean flash = ch.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                Integer facing = ch.get(CameraCharacteristics.LENS_FACING);
+                if (Boolean.TRUE.equals(flash) && facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) {
+                    id = c;
+                    break;
+                }
+            }
+            if (id == null) {
+                return "none";
+            }
+            boolean on = arg.equals("on") || (arg.equals("toggle") && !torchOn);
+            cm.setTorchMode(id, on);
+            torchOn = on;
+            return on ? "on" : "off";
+        }
+
+        private String volume(String arg) {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            int step = Math.max(1, max / 6);
+            int v = cur;
+            if (arg.equals("up")) {
+                v = Math.min(max, cur + step);
+            } else if (arg.equals("down")) {
+                v = Math.max(0, cur - step);
+            } else if (arg.equals("max")) {
+                v = max;
+            } else if (arg.equals("mute")) {
+                v = 0;
+            } else {
+                try {
+                    int pct = Math.min(100, Math.max(0, Integer.parseInt(arg)));
+                    v = Math.round(max * pct / 100f);
+                } catch (Exception e) {
+                    v = cur;
+                }
+            }
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, v, AudioManager.FLAG_SHOW_UI);
+            return String.valueOf(Math.round(100f * v / max));
+        }
+
+        @JavascriptInterface
+        public String device(String cmd, String arg) {
+            try {
+                if (cmd.equals("torch")) {
+                    return torch(arg);
+                }
+                if (cmd.equals("volume")) {
+                    return volume(arg);
+                }
+                if (cmd.equals("alarm")) {
+                    String[] p = arg.split(":");
+                    Intent i = new Intent(AlarmClock.ACTION_SET_ALARM);
+                    i.putExtra(AlarmClock.EXTRA_HOUR, Integer.parseInt(p[0]));
+                    i.putExtra(AlarmClock.EXTRA_MINUTES, Integer.parseInt(p[1]));
+                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Cboom AI");
+                    i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+                    startNew(i);
+                    return "ok";
+                }
+                if (cmd.equals("timer")) {
+                    Intent i = new Intent(AlarmClock.ACTION_SET_TIMER);
+                    i.putExtra(AlarmClock.EXTRA_LENGTH, Integer.parseInt(arg));
+                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Cboom AI");
+                    i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+                    startNew(i);
+                    return "ok";
+                }
+                if (cmd.equals("battery")) {
+                    Intent b = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                    int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                    int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                            || status == BatteryManager.BATTERY_STATUS_FULL;
+                    return (level * 100 / scale) + (charging ? ",charging" : ",not charging");
+                }
+                if (cmd.equals("wifi")) {
+                    startNew(new Intent(Settings.ACTION_WIFI_SETTINGS));
+                    return "ok";
+                }
+                if (cmd.equals("bluetooth")) {
+                    startNew(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS));
+                    return "ok";
+                }
+                if (cmd.equals("camera")) {
+                    startNew(new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA));
+                    return "ok";
+                }
+            } catch (Exception e) {
+                return "error";
+            }
+            return "";
         }
 
         @JavascriptInterface
