@@ -29,7 +29,7 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
 #openbtn.show{display:block}
 .app{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-top:6px;border-radius:10px;background:#2a0014;font-size:.88rem;word-break:break-all}
 .app button{background:none;border:0;color:#ff7a95;font-size:1.05rem;padding:0 4px}
-.sheet input[type=text]{width:100%;padding:11px;border-radius:10px;background:#2a0014;color:#fff;border:1px solid #ff2a52;font-size:.95rem;margin-top:6px}
+.sheet input[type=text],.sheet input[type=password]{width:100%;padding:11px;border-radius:10px;background:#2a0014;color:#fff;border:1px solid #ff2a52;font-size:.95rem;margin-top:6px}
 #tf{display:none;gap:8px;margin-top:12px}
 #tf.show{display:flex}
 #ti{flex:1;padding:12px 14px;border-radius:12px;border:1px solid #ff2a52;background:rgba(40,0,12,.85);color:#fff;font-size:1rem;outline:0}
@@ -64,6 +64,12 @@ body{background:radial-gradient(ellipse at 50% 38%,#4a0014 0%,#16000a 45%,#05000
   <label>Voice (from your phone)</label><select id="vsel"></select>
   <label>Style</label><select id="ssel"></select>
   <label>Speed</label><input type="range" id="rate" min="0.6" max="1.5" step="0.05">
+  <label>AI brain (answers any question)</label>
+  <select id="aip"><option value="gemini">Gemini (Google)</option><option value="openai">ChatGPT (OpenAI)</option><option value="grok">Grok (xAI)</option></select>
+  <input type="password" id="aik" placeholder="Paste your API key" autocomplete="off">
+  <input type="text" id="aim" placeholder="Model name" autocomplete="off">
+  <div class="row"><button id="aitest">Test AI</button></div>
+  <div id="aimsg" style="color:#ffb3c2;font-size:.82rem;margin-top:8px"></div>
   <label>My apps: opens the app’s Play Store page (tap Open there)</label>
   <input type="text" id="an" placeholder="App name, e.g. grand mobile">
   <input type="text" id="ap" placeholder="Package name, e.g. com.grand.launcher">
@@ -81,7 +87,7 @@ $("nm").textContent=NAME;
 
 /* ---------- settings ---------- */
 const STYLES={normal:["Normal",1,1],deep:["Deep",.6,.92],bright:["Bright",1.45,1.05],robot:["Robot",.75,.88],fast:["Quick",1.1,1.25],calm:["Calm",.9,.8]};
-let S={voice:"",style:"normal",rate:1,hands:false,apps:{}};
+let S={voice:"",style:"normal",rate:1,hands:false,apps:{},ai:{p:"gemini",k:"",m:""}};
 try{Object.assign(S,JSON.parse(localStorage.getItem("cboomai")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("cboomai",JSON.stringify(S))}catch(e){}};
 
@@ -176,7 +182,7 @@ function think(raw){
   if(m=q.match(/^(?:search|google|look up|search for|find) (?:for )?(.+)$/))return{t:"Searching Google for "+m[1]+".",go:gs(m[1]),label:"Open Google search"};
   let e=q.replace(/what is|whats|calculate|how much is|equals|\?/g,"").replace(/plus/g,"+").replace(/minus/g,"-").replace(/multiplied by|times/g,"*").replace(/divided by|over/g,"/").replace(/(\d)\s*x\s*(\d)/g,"$1*$2").trim();
   if(/^[\d+\-*/.()\s]+$/.test(e)&&/\d/.test(e)&&/[+\-*/]/.test(e)){try{const v=Function('"use strict";return ('+e+')')();if(isFinite(v))return{t:"The answer is "+(Math.round(v*1e6)/1e6)+"."}}catch(x){}}
-  return{t:"I don’t know that one yet, so I’ll search Google for you.",go:gs(raw)};
+  return{t:aiReady()?"":"I don’t know that one yet. Add an AI key in settings for smarter answers. Searching Google for now.",go:gs(raw),label:"Open Google search",ai:true};
 }
 
 /* ---------- voice output ---------- */
@@ -223,7 +229,12 @@ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null,listening=false;
 function handle(text){
   addMsg("you",text);setState("thinking");hint("Thinking…");
-  const r=think(text);showOpen(r);
+  const r=think(text);
+  if(r.ai&&aiReady()){
+    askAI(text).then(a=>{addMsg("ai",a);hint("Tap the glowing orb to speak");speak(a)}).catch(e=>{const m=aiErr(e&&e.status);addMsg("ai",m);hint(m);speak(m)});
+    return;
+  }
+  showOpen(r);
   setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go,r.act)},350);
 }
 function listen(){
@@ -239,6 +250,57 @@ function listen(){
   rec.onend=()=>{listening=false;if(fin)handle(fin);else if(state==="listening"){setState("idle");hint("Tap the glowing orb to speak")}};
   try{rec.start()}catch(e){}
 }
+
+/* ---------- AI brain ---------- */
+const AI_DEF={gemini:"gemini-flash-latest",openai:"gpt-4o-mini",grok:"grok-3-mini"};
+const SYS="You are Cboom AI, a friendly voice assistant on the user’s phone. Reply in one to three short sentences of plain text. No markdown, no lists, no emojis, because your reply is read aloud.";
+const hist=[],httpPend={};
+function aiReady(){return !!(S.ai&&S.ai.k&&S.ai.k.trim().length>10)}
+const aiErr=s=>s===400||s===401||s===403?"The AI rejected my request. Check your API key and model name in settings.":s===404?"I couldn’t find that model name. Check it in settings.":s===429?"The AI is busy, or you’ve used up the free limit. Try again in a minute.":s===0?"I couldn’t reach the AI. Check your internet.":"The AI sent something I couldn’t read.";
+function post(url,headers,body){
+  return new Promise((res,rej)=>{
+    if(NATIVE){
+      const id="h"+Date.now()+Math.floor(Math.random()*1e6);
+      httpPend[id]=(status,text)=>status>0?res({status:status,text:text}):rej({status:0});
+      setTimeout(()=>{if(httpPend[id]){delete httpPend[id];rej({status:0})}},30000);
+      Android.http(id,url,JSON.stringify(headers),body);
+    }else fetch(url,{method:"POST",headers:headers,body:body}).then(r=>r.text().then(t=>res({status:r.status,text:t}))).catch(()=>rej({status:0}));
+  });
+}
+window.nativeHttp=(id,status,text)=>{const f=httpPend[id];if(f){delete httpPend[id];f(status,text)}};
+async function askAI(q){
+  const c=S.ai,k=c.k.trim(),m=(c.m||"").trim()||AI_DEF[c.p];
+  const turns=hist.slice(-6).concat([{r:"user",t:q}]);
+  let url,headers,body;
+  if(c.p==="gemini"){
+    url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(m)+":generateContent";
+    headers={"Content-Type":"application/json","x-goog-api-key":k};
+    body=JSON.stringify({systemInstruction:{parts:[{text:SYS}]},contents:turns.map(x=>({role:x.r==="user"?"user":"model",parts:[{text:x.t}]}))});
+  }else{
+    url=c.p==="openai"?"https://api.openai.com/v1/chat/completions":"https://api.x.ai/v1/chat/completions";
+    headers={"Content-Type":"application/json","Authorization":"Bearer "+k};
+    body=JSON.stringify({model:m,messages:[{role:"system",content:SYS}].concat(turns.map(x=>({role:x.r,content:x.t})))});
+  }
+  const r=await post(url,headers,body);
+  if(r.status<200||r.status>=300)throw{status:r.status};
+  let j;try{j=JSON.parse(r.text)}catch(e){throw{status:-1}}
+  let out="";
+  if(c.p==="gemini"){const parts=(((j.candidates||[])[0]||{}).content||{}).parts||[];out=parts.map(x=>x.text||"").join("")}
+  else out=(((j.choices||[])[0]||{}).message||{}).content||"";
+  if(!out)throw{status:-1};
+  hist.push({r:"user",t:q},{r:"assistant",t:out});
+  return out.replace(/[*_#`]/g,"").trim();
+}
+$("aip").value=S.ai.p;$("aik").value=S.ai.k;$("aim").value=S.ai.m;
+const aiHint=()=>{$("aim").placeholder="Model (default: "+AI_DEF[S.ai.p]+")"};aiHint();
+$("aip").onchange=e=>{S.ai.p=e.target.value;aiHint();save()};
+$("aik").oninput=e=>{S.ai.k=e.target.value.trim();save()};
+$("aim").oninput=e=>{S.ai.m=e.target.value.trim();save()};
+$("aitest").onclick=()=>{
+  if(!aiReady()){$("aimsg").textContent="Paste your API key first.";return}
+  $("aimsg").textContent="Testing…";
+  askAI("Say hello in five words.").then(a=>{$("aimsg").textContent="Works: "+a}).catch(e=>{$("aimsg").textContent=aiErr(e&&e.status)});
+};
 
 /* ---------- open button + my apps ---------- */
 let pend=null;

@@ -584,6 +584,48 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void http(final String id, final String url, final String headersJson, final String body) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    int status = 0;
+                    String text = "";
+                    try {
+                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                        c.setRequestMethod("POST");
+                        c.setConnectTimeout(15000);
+                        c.setReadTimeout(25000);
+                        c.setDoOutput(true);
+                        JSONObject h = new JSONObject(headersJson);
+                        java.util.Iterator<String> it = h.keys();
+                        while (it.hasNext()) {
+                            String k = it.next();
+                            c.setRequestProperty(k, h.getString(k));
+                        }
+                        java.io.OutputStream os = c.getOutputStream();
+                        os.write(body.getBytes("UTF-8"));
+                        os.close();
+                        status = c.getResponseCode();
+                        java.io.InputStream is = status >= 400 ? c.getErrorStream() : c.getInputStream();
+                        if (is != null) {
+                            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                            byte[] buf = new byte[4096];
+                            int n;
+                            while ((n = is.read(buf)) > 0) {
+                                bo.write(buf, 0, n);
+                            }
+                            text = bo.toString("UTF-8");
+                        }
+                    } catch (Exception e) {
+                        status = 0;
+                        text = "";
+                    }
+                    js("nativeHttp(" + JSONObject.quote(id) + "," + status + "," + JSONObject.quote(text) + ")");
+                }
+            }).start();
+        }
+
+        @JavascriptInterface
         public String openApp(String name) {
             try {
                 PackageManager pm = getPackageManager();
