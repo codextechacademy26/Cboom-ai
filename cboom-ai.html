@@ -72,6 +72,16 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
   <label>Voice (from your phone)</label><select id="vsel"></select>
   <label>Style</label><select id="ssel"></select>
   <label>Speed</label><input type="range" id="rate" min="0.6" max="1.5" step="0.05">
+  <label>Voice engine</label>
+  <select id="eng"><option value="cloud">Cloud voices (Gemini, natural)</option><option value="phone">Phone voice (offline)</option></select>
+  <label>Cloud voice (30 to choose from)</label>
+  <select id="cvoice"></select>
+  <input type="text" id="ttsm" placeholder="TTS model" autocomplete="off">
+  <label>Hall echo (cloud voices only)</label>
+  <div style="display:flex;align-items:center;gap:10px;margin-top:6px"><input type="checkbox" id="echo" style="width:22px;height:22px"><span style="font-size:.85rem">School-hall announcement echo</span></div>
+  <label>Echo strength</label>
+  <input type="range" id="eamt" min="0" max="100" step="5">
+  <div id="ttsmsg" style="color:var(--mut);font-size:.82rem;margin-top:8px"></div>
   <label>AI brain (answers any question)</label>
   <select id="aip"><option value="gemini">Gemini (Google)</option><option value="openai">ChatGPT (OpenAI)</option><option value="grok">Grok (xAI)</option></select>
   <input type="password" id="aik" placeholder="Paste your API key" autocomplete="off">
@@ -97,7 +107,7 @@ $("pw").innerHTML="Powered by <b></b>";$("pw").querySelector("b").textContent=PO
 
 /* ---------- settings ---------- */
 const STYLES={normal:["Normal",1,1],deep:["Deep",.6,.92],bright:["Bright",1.45,1.05],robot:["Robot",.75,.88],fast:["Quick",1.1,1.25],calm:["Calm",.9,.8]};
-let S={voice:"",style:"normal",rate:1,hands:false,apps:{},ai:{p:"gemini",k:"",m:""}};
+let S={voice:"",style:"normal",rate:1,hands:false,apps:{},ai:{p:"gemini",k:"",m:""},eng:"cloud",tts:{v:"Kore",m:""},echo:true,echoAmt:60};
 try{Object.assign(S,JSON.parse(localStorage.getItem("cboomai")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("cboomai",JSON.stringify(S))}catch(e){}};
 
@@ -236,20 +246,30 @@ if(NATIVE){fillVoices();setTimeout(fillVoices,1500)}else if(hasTTS){fillVoices()
 Object.keys(STYLES).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=STYLES[k][0];$("ssel").appendChild(o)});
 $("ssel").value=S.style;$("rate").value=S.rate;$("hf").classList.toggle("on",S.hands);
 function openUrl(u){try{if(/^(intent|tel|sms|mailto):/.test(u)){location.href=u;return}window.open(u,"_blank")||(location.href=u)}catch(e){location.href=u}}
-let curEnd=null;
+let curEnd=null,actx=null,cloudSrc=null,irBuf=null;
+function stopCloud(){if(cloudSrc){cloudSrc.onended=null;try{cloudSrc.stop()}catch(e){}cloudSrc=null}}
+const cloudOn=()=>S.eng==="cloud"&&S.ai.p==="gemini"&&aiReady();
 function speak(text,go,act){
   const st=STYLES[S.style]||STYLES.normal;
   let done=false;
   const end=()=>{if(done)return;done=true;setState("idle");if(go||act){if(NATIVE)nativePerform(go,act);else if(go&&/^https?:/.test(go))openUrl(go)}else if(S.hands)setTimeout(listen,350)};
-  if(NATIVE){curEnd=end;setState("speaking");setTimeout(end,30000);Android.speak(text,S.voice||"",st[1],Math.min(2,S.rate*st[2]));return}
-  if(!hasTTS){setState("idle");if(go)openUrl(go);return}
-  speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(text),v=vlist().find(x=>x.voiceURI===S.voice);
-  if(v){u.voice=v;u.lang=v.lang}
-  u.pitch=st[1];u.rate=Math.min(2,S.rate*st[2]);
-  setState("speaking");
-  u.onend=end;u.onerror=end;
-  speechSynthesis.speak(u);
+  const phone=()=>{
+    if(NATIVE){curEnd=end;setState("speaking");setTimeout(end,30000);Android.speak(text,S.voice||"",st[1],Math.min(2,S.rate*st[2]));return}
+    if(!hasTTS){setState("idle");if(go)openUrl(go);return}
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text),v=vlist().find(x=>x.voiceURI===S.voice);
+    if(v){u.voice=v;u.lang=v.lang}
+    u.pitch=st[1];u.rate=Math.min(2,S.rate*st[2]);
+    setState("speaking");
+    u.onend=end;u.onerror=end;
+    speechSynthesis.speak(u);
+  };
+  stopCloud();
+  if(NATIVE)Android.stopSpeak();else if(hasTTS)speechSynthesis.cancel();
+  if(cloudOn()){
+    curEnd=null;setState("thinking");
+    cloudSpeak(text,end).then(()=>{$("ttsmsg").textContent=""}).catch(e=>{$("ttsmsg").textContent="Cloud voice failed: "+(e&&e.status?e.status+" ":"")+(e&&e.msg?String(e.msg).slice(0,140):"")+". Using the phone voice.";phone()});
+  }else phone();
 }
 function nativePerform(go,a){
   if(a){
@@ -276,6 +296,7 @@ function handle(text){
   setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go,r.act)},350);
 }
 function listen(){
+  stopCloud();
   if(NATIVE){if(listening){Android.stopListen();return}Android.stopSpeak();Android.listen();return}
   if(!SR){hint("Voice input isn’t available here. Use the keyboard button to type.");return}
   if(listening){try{rec.stop()}catch(e){}return}
@@ -342,6 +363,61 @@ $("aitest").onclick=()=>{
   askAI("Say hello in five words.").then(a=>{$("aimsg").textContent="Works: "+a}).catch(e=>{$("aimsg").textContent=aiErr(e&&e.status)+aiDetail(e)});
 };
 
+/* ---------- cloud voices + hall echo ---------- */
+const TTS_DEF="gemini-3.1-flash-tts-preview";
+const CV=[["Zephyr","Bright"],["Puck","Upbeat"],["Charon","Informative"],["Kore","Firm"],["Fenrir","Excitable"],["Leda","Youthful"],["Orus","Firm"],["Aoede","Breezy"],["Callirrhoe","Easy-going"],["Autonoe","Bright"],["Enceladus","Breathy"],["Iapetus","Clear"],["Umbriel","Easy-going"],["Algieba","Smooth"],["Despina","Smooth"],["Erinome","Clear"],["Algenib","Gravelly"],["Rasalgethi","Informative"],["Laomedeia","Upbeat"],["Achernar","Soft"],["Alnilam","Firm"],["Schedar","Even"],["Gacrux","Mature"],["Pulcherrima","Forward"],["Achird","Friendly"],["Zubenelgenubi","Casual"],["Vindemiatrix","Gentle"],["Sadachbia","Lively"],["Sadaltager","Knowledgeable"],["Sulafat","Warm"]];
+function hallIR(ctx){
+  if(irBuf&&irBuf.sampleRate===ctx.sampleRate)return irBuf;
+  const len=Math.floor(ctx.sampleRate*1.8),ir=ctx.createBuffer(2,len,ctx.sampleRate);
+  for(let c=0;c<2;c++){const d=ir.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3)}
+  return irBuf=ir;
+}
+function buildChain(ctx,src){
+  if(!S.echo){src.connect(ctx.destination);return}
+  const amt=S.echoAmt/100;
+  const hp=ctx.createBiquadFilter();hp.type="highpass";hp.frequency.value=220;
+  const pk=ctx.createBiquadFilter();pk.type="peaking";pk.frequency.value=2400;pk.gain.value=4;pk.Q.value=.8;
+  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=5200;
+  src.connect(hp);hp.connect(pk);pk.connect(lp);
+  const out=ctx.createGain();out.gain.value=.9;
+  const dry=ctx.createGain();dry.gain.value=1;lp.connect(dry);dry.connect(out);
+  const dl=ctx.createDelay(1),fb=ctx.createGain(),fl=ctx.createBiquadFilter(),ew=ctx.createGain();
+  dl.delayTime.value=.27;fb.gain.value=.25+.25*amt;fl.type="lowpass";fl.frequency.value=2600;ew.gain.value=.25+.4*amt;
+  lp.connect(dl);dl.connect(fl);fl.connect(fb);fb.connect(dl);fl.connect(ew);ew.connect(out);
+  const cv=ctx.createConvolver(),rw=ctx.createGain();
+  cv.buffer=hallIR(ctx);rw.gain.value=.15+.35*amt;lp.connect(cv);cv.connect(rw);rw.connect(out);
+  const comp=ctx.createDynamicsCompressor();out.connect(comp);comp.connect(ctx.destination);
+}
+async function cloudSpeak(text,end){
+  const k=S.ai.k.trim(),m=(S.tts.m||"").trim()||TTS_DEF;
+  const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(m)+":generateContent";
+  const body=JSON.stringify({contents:[{parts:[{text:text.slice(0,600)}]}],generationConfig:{responseModalities:["AUDIO"],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:S.tts.v||"Kore"}}}}});
+  const r=await post(url,{"Content-Type":"application/json","x-goog-api-key":k},body);
+  if(r.status<200||r.status>=300){let msg="";try{const er=JSON.parse(r.text);msg=(er.error&&er.error.message)||""}catch(x){msg=(r.text||"").slice(0,100)}throw{status:r.status,msg:msg}}
+  let j;try{j=JSON.parse(r.text)}catch(e){throw{status:-1,msg:"Unreadable reply"}}
+  const parts=(((j.candidates||[])[0]||{}).content||{}).parts||[];
+  let inl=null;for(const q of parts){if(q.inlineData||q.inline_data){inl=q.inlineData||q.inline_data;break}}
+  if(!inl||!inl.data)throw{status:-1,msg:"No audio came back"};
+  const rate=+((/rate=(\d+)/.exec(inl.mimeType||inl.mime_type||"")||[])[1]||24000);
+  const bin=atob(inl.data),n=bin.length>>1,f=new Float32Array(n);
+  for(let i=0;i<n;i++){let x=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(x>=32768)x-=65536;f[i]=x/32768}
+  const ctx=actx||(actx=new (window.AudioContext||window.webkitAudioContext)());
+  if(ctx.state==="suspended")await ctx.resume();
+  if(ctx.state!=="running")throw{status:0,msg:"Audio is blocked"};
+  const buf=ctx.createBuffer(1,n,rate);buf.copyToChannel(f,0);
+  stopCloud();
+  const src=ctx.createBufferSource();src.buffer=buf;src.playbackRate.value=Math.min(1.6,Math.max(.6,S.rate));
+  buildChain(ctx,src);cloudSrc=src;setState("speaking");
+  src.onended=()=>{cloudSrc=null;setTimeout(end,S.echo?1400:0)};
+  src.start();
+}
+CV.forEach(x=>{const o=document.createElement("option");o.value=x[0];o.textContent=x[0]+" · "+x[1];$("cvoice").appendChild(o)});
+$("eng").value=S.eng;$("eng").onchange=e=>{S.eng=e.target.value;save()};
+$("cvoice").value=S.tts.v;$("cvoice").onchange=e=>{S.tts.v=e.target.value;save()};
+$("ttsm").value=S.tts.m;$("ttsm").placeholder="TTS model (default: "+TTS_DEF+")";$("ttsm").oninput=e=>{S.tts.m=e.target.value.trim();save()};
+$("echo").checked=!!S.echo;$("echo").onchange=e=>{S.echo=e.target.checked;save()};
+$("eamt").value=S.echoAmt;$("eamt").oninput=e=>{S.echoAmt=+e.target.value;save()};
+
 /* ---------- open button + my apps ---------- */
 let pend=null;
 function showOpen(r){if(NATIVE)return;pend=r.go||null;const b=$("openbtn");b.textContent=r.label||"Open";if(r.go){b.href=r.go;b.target=/^https?:/.test(r.go)?"_blank":"_self"}b.classList.toggle("show",!!r.go)}
@@ -366,7 +442,7 @@ window.nativeSpeakEnd=()=>{if(curEnd)curEnd()};
 
 /* ---------- events ---------- */
 $("orb").onclick=listen;$("mic").onclick=listen;
-$("stop").onclick=()=>{if(NATIVE){Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Tap the glowing orb to speak")};
+$("stop").onclick=()=>{stopCloud();if(NATIVE){Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Tap the glowing orb to speak")};
 $("kb").onclick=()=>{$("tf").classList.toggle("show");if($("tf").classList.contains("show"))$("ti").focus()};
 $("tf").onsubmit=e=>{e.preventDefault();const v=$("ti").value.trim();if(v){$("ti").value="";handle(v)}};
 $("hf").onclick=()=>{S.hands=!S.hands;$("hf").classList.toggle("on",S.hands);save();hint(S.hands?"Hands-free is on":"Hands-free is off")};
