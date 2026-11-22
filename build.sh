@@ -66,6 +66,7 @@ cat > android/app/src/main/AndroidManifest.xml <<'EOF'
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
@@ -138,18 +139,22 @@ package com.cboom.ai;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.media.AudioManager;
+import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.provider.AlarmClock;
+import android.provider.ContactsContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.speech.RecognitionListener;
@@ -158,6 +163,9 @@ import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.TelephonyManager;
+import android.util.Base64;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -238,7 +246,8 @@ public class MainActivity extends Activity {
 
         requestPermissions(new String[]{
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.CALL_PHONE
+                Manifest.permission.CALL_PHONE,
+                Manifest.permission.READ_CONTACTS
         }, 1);
 
         web.loadUrl("file:///android_asset/index.html");
@@ -556,22 +565,48 @@ public class MainActivity extends Activity {
                     return volume(arg);
                 }
                 if (cmd.equals("alarm")) {
-                    String[] p = arg.split(":");
+                    String label = "Codex AI";
+                    String aa = arg;
+                    int bar = arg.indexOf('|');
+                    if (bar >= 0) {
+                        label = arg.substring(bar + 1);
+                        aa = arg.substring(0, bar);
+                    }
+                    String[] p = aa.split(":");
                     Intent i = new Intent(AlarmClock.ACTION_SET_ALARM);
                     i.putExtra(AlarmClock.EXTRA_HOUR, Integer.parseInt(p[0]));
                     i.putExtra(AlarmClock.EXTRA_MINUTES, Integer.parseInt(p[1]));
-                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Codex AI");
+                    i.putExtra(AlarmClock.EXTRA_MESSAGE, label);
                     i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
                     startNew(i);
                     return "ok";
                 }
                 if (cmd.equals("timer")) {
+                    String label = "Codex AI";
+                    String tt = arg;
+                    int bar = arg.indexOf('|');
+                    if (bar >= 0) {
+                        label = arg.substring(bar + 1);
+                        tt = arg.substring(0, bar);
+                    }
                     Intent i = new Intent(AlarmClock.ACTION_SET_TIMER);
-                    i.putExtra(AlarmClock.EXTRA_LENGTH, Integer.parseInt(arg));
-                    i.putExtra(AlarmClock.EXTRA_MESSAGE, "Codex AI");
+                    i.putExtra(AlarmClock.EXTRA_LENGTH, Integer.parseInt(tt));
+                    i.putExtra(AlarmClock.EXTRA_MESSAGE, label);
                     i.putExtra(AlarmClock.EXTRA_SKIP_UI, true);
                     startNew(i);
                     return "ok";
+                }
+                if (cmd.equals("music")) {
+                    try {
+                        Intent mi = new Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH);
+                        mi.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*");
+                        mi.putExtra(SearchManager.QUERY, arg);
+                        startNew(mi);
+                        return "ok";
+                    } catch (Exception ex) {
+                        openExternal("https://www.youtube.com/results?search_query=" + Uri.encode(arg));
+                        return "web";
+                    }
                 }
                 if (cmd.equals("battery")) {
                     Intent b = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
@@ -632,6 +667,225 @@ public class MainActivity extends Activity {
                                 bo.write(buf, 0, n);
                             }
                             text = bo.toString("UTF-8");
+                        }
+                    } catch (Exception e) {
+                        status = 0;
+                        text = "";
+                    }
+                    js("nativeHttp(" + JSONObject.quote(id) + "," + status + "," + JSONObject.quote(text) + ")");
+                }
+            }).start();
+        }
+
+        @JavascriptInterface
+        public String contact(String name) {
+            try {
+                if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                    return "denied";
+                }
+                String q = name.toLowerCase(Locale.ROOT).trim();
+                Cursor c = getContentResolver().query(
+                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                        new String[]{
+                                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                                ContactsContract.CommonDataKinds.Phone.NUMBER},
+                        null, null, null);
+                if (c == null) {
+                    return "";
+                }
+                String bestName = "";
+                String bestNum = "";
+                int bestScore = 0;
+                while (c.moveToNext()) {
+                    String n = c.getString(0);
+                    String num = c.getString(1);
+                    if (n == null || num == null) {
+                        continue;
+                    }
+                    String l = n.toLowerCase(Locale.ROOT);
+                    int score = 0;
+                    if (l.equals(q)) {
+                        score = 3;
+                    } else if (l.startsWith(q)) {
+                        score = 2;
+                    } else if (l.contains(q)) {
+                        score = 1;
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestName = n;
+                        bestNum = num;
+                    }
+                }
+                c.close();
+                if (bestScore == 0) {
+                    return "";
+                }
+                String iso = "";
+                try {
+                    TelephonyManager tm = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+                    iso = tm.getSimCountryIso();
+                } catch (Exception ignore) {
+                    iso = "";
+                }
+                if (iso == null || iso.length() == 0) {
+                    iso = Locale.getDefault().getCountry();
+                }
+                String clean = bestNum.replaceAll("[^0-9+]", "");
+                String e164 = PhoneNumberUtils.formatNumberToE164(bestNum, iso.toUpperCase(Locale.ROOT));
+                if (e164 == null) {
+                    e164 = clean;
+                }
+                return bestName + "|" + clean + "|" + e164;
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        private MediaRecorder recorder;
+        private java.io.File sample;
+
+        @JavascriptInterface
+        public String recStart() {
+            try {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    return "denied";
+                }
+                if (recorder != null) {
+                    try {
+                        recorder.release();
+                    } catch (Exception ignore) {
+                        // already released
+                    }
+                    recorder = null;
+                }
+                sample = new java.io.File(getCacheDir(), "voice_sample.m4a");
+                recorder = new MediaRecorder();
+                recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                recorder.setAudioEncodingBitRate(128000);
+                recorder.setAudioSamplingRate(44100);
+                recorder.setOutputFile(sample.getAbsolutePath());
+                recorder.prepare();
+                recorder.start();
+                return "ok";
+            } catch (Exception e) {
+                recorder = null;
+                return "error";
+            }
+        }
+
+        @JavascriptInterface
+        public String recStop() {
+            try {
+                if (recorder != null) {
+                    recorder.stop();
+                    recorder.release();
+                    recorder = null;
+                    return "ok";
+                }
+            } catch (Exception e) {
+                recorder = null;
+            }
+            return "error";
+        }
+
+        private String readAll(java.io.InputStream is) throws Exception {
+            if (is == null) {
+                return "";
+            }
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) > 0) {
+                bo.write(buf, 0, n);
+            }
+            return bo.toString("UTF-8");
+        }
+
+        private byte[] readBytes(java.io.InputStream is) throws Exception {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) {
+                bo.write(buf, 0, n);
+            }
+            return bo.toByteArray();
+        }
+
+        @JavascriptInterface
+        public void cloneVoice(final String id, final String name, final String key) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    int status = 0;
+                    String text = "";
+                    try {
+                        if (sample == null || !sample.exists()) {
+                            throw new Exception("No recording yet.");
+                        }
+                        String boundary = "----CodexAI" + System.nanoTime();
+                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://api.elevenlabs.io/v1/voices/add").openConnection();
+                        c.setRequestMethod("POST");
+                        c.setConnectTimeout(20000);
+                        c.setReadTimeout(60000);
+                        c.setDoOutput(true);
+                        c.setRequestProperty("xi-api-key", key);
+                        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+                        java.io.OutputStream os = c.getOutputStream();
+                        String p1 = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n" + name + "\r\n";
+                        os.write(p1.getBytes("UTF-8"));
+                        String p2 = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"sample.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n";
+                        os.write(p2.getBytes("UTF-8"));
+                        java.io.FileInputStream fis = new java.io.FileInputStream(sample);
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = fis.read(buf)) > 0) {
+                            os.write(buf, 0, n);
+                        }
+                        fis.close();
+                        os.write(("\r\n--" + boundary + "--\r\n").getBytes("UTF-8"));
+                        os.close();
+                        status = c.getResponseCode();
+                        text = readAll(status >= 400 ? c.getErrorStream() : c.getInputStream());
+                    } catch (Exception e) {
+                        status = 0;
+                        text = String.valueOf(e.getMessage());
+                    }
+                    js("nativeHttp(" + JSONObject.quote(id) + "," + status + "," + JSONObject.quote(text) + ")");
+                }
+            }).start();
+        }
+
+        @JavascriptInterface
+        public void httpBin(final String id, final String url, final String headersJson, final String body) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    int status = 0;
+                    String text = "";
+                    try {
+                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                        c.setRequestMethod("POST");
+                        c.setConnectTimeout(15000);
+                        c.setReadTimeout(40000);
+                        c.setDoOutput(true);
+                        JSONObject h = new JSONObject(headersJson);
+                        java.util.Iterator<String> it = h.keys();
+                        while (it.hasNext()) {
+                            String k = it.next();
+                            c.setRequestProperty(k, h.getString(k));
+                        }
+                        java.io.OutputStream os = c.getOutputStream();
+                        os.write(body.getBytes("UTF-8"));
+                        os.close();
+                        status = c.getResponseCode();
+                        if (status >= 200 && status < 300) {
+                            byte[] data = readBytes(c.getInputStream());
+                            text = Base64.encodeToString(data, Base64.NO_WRAP);
+                        } else {
+                            text = readAll(c.getErrorStream());
                         }
                     } catch (Exception e) {
                         status = 0;
