@@ -114,9 +114,12 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
   <div class="row"><button id="test">Test voice</button><button class="p" id="close">Done</button></div>
 </div></div>
 
+<script src="config.js"></script>
 <script>
 const NAME="Codex AI";
 const POWERED="codextechacademy26";
+const DEF_KEY=(typeof window.DEFAULT_KEY==="string"?window.DEFAULT_KEY:"");
+const KEYOF=()=>(((S.ai&&S.ai.k)||DEF_KEY||"")+"").trim();
 const NATIVE=typeof Android!=="undefined"&&!!Android.isNative&&Android.isNative();
 const $=id=>document.getElementById(id);
 $("nm").textContent=NAME;
@@ -366,10 +369,10 @@ function listen(){
 }
 
 /* ---------- AI brain ---------- */
-const AI_DEF={gemini:"gemini-flash-latest",openai:"gpt-4o-mini",grok:"grok-3-mini"};
+const AI_DEF={gemini:"gemini-3.6-flash",openai:"gpt-4o-mini",grok:"grok-3-mini"};
 const SYS="You are Codex AI, a friendly voice assistant on the user’s phone. Reply in one to three short sentences of plain text. No markdown, no lists, no emojis, because your reply is read aloud.";
 const hist=[],httpPend={};
-function aiReady(){return !!(S.ai&&S.ai.k&&S.ai.k.trim().length>10)}
+function aiReady(){return KEYOF().length>10}
 const aiErr=s=>s===400||s===401||s===403?"The AI rejected my request. Check your API key and model name in settings.":s===404?"I couldn’t find that model name. Check it in settings.":s===429?"The AI is busy, or you’ve used up the free limit. Try again in a minute.":s===0?"I couldn’t reach the AI. Check your internet.":"The AI sent something I couldn’t read.";
 const aiDetail=e=>e&&e.msg?" ("+(e.status>0?e.status+": ":"")+String(e.msg).slice(0,160)+")":"";
 function post(url,headers,body){
@@ -384,7 +387,7 @@ function post(url,headers,body){
 }
 window.nativeHttp=(id,status,text)=>{const f=httpPend[id];if(f){delete httpPend[id];f(status,text)}};
 async function askAI(q){
-  const c=S.ai,k=c.k.trim(),m=(c.m||"").trim()||AI_DEF[c.p];
+  const c=S.ai,k=KEYOF(),m=(c.m||"").trim()||AI_DEF[c.p];
   const turns=hist.slice(-6).concat([{r:"user",t:q}]);
   let url,headers,body;
   if(c.p==="gemini"){
@@ -444,7 +447,7 @@ function buildChain(ctx,src){
   const comp=ctx.createDynamicsCompressor();out.connect(comp);comp.connect(ctx.destination);
 }
 async function cloudSpeak(text,end){
-  const k=S.ai.k.trim(),m=(S.tts.m||"").trim()||TTS_DEF;
+  const k=KEYOF(),m=(S.tts.m||"").trim()||TTS_DEF;
   const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(m)+":generateContent";
   const body=JSON.stringify({contents:[{parts:[{text:text.slice(0,600)}]}],generationConfig:{responseModalities:["AUDIO"],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:S.tts.v||"Kore"}}}}});
   const r=await post(url,{"Content-Type":"application/json","x-goog-api-key":k},body);

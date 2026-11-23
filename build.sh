@@ -947,6 +947,13 @@ EOF
 # put the web app inside the Android app
 cp cboom-ai.html android/app/src/main/assets/index.html
 
+# built-in AI key, read from the GEMINI_KEY secret (never stored in the repo)
+python3 - <<'PYIN'
+import json, os
+key = os.environ.get("GEMINI_KEY", "")
+open("android/app/src/main/assets/config.js", "w").write("window.DEFAULT_KEY=" + json.dumps(key) + ";\n")
+PYIN
+
 cd android
 gradle assembleDebug --no-daemon --stacktrace
 cd ..
