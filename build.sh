@@ -1,9 +1,18 @@
 #!/bin/bash
 # Builds the Cboom AI Android app from cboom-ai.html (run by GitHub Actions)
-set -e
+set -Eeuo pipefail
+trap 'status=$?; echo "::error::build.sh failed at line ${LINENO} (exit ${status})"; exit "$status"' ERR
+
+if [[ ! -f cboom-ai.html ]]; then
+  echo "::error::Missing cboom-ai.html in repository root"
+  exit 1
+fi
+command -v java >/dev/null 2>&1 || { echo "::error::Java is not installed"; exit 1; }
+command -v gradle >/dev/null 2>&1 || { echo "::error::Gradle is not on PATH; check the setup-gradle workflow step"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "::error::Python 3 is required to write the private config file"; exit 1; }
 
 rm -rf android build-out
-mkdir -p android/app/src/main/java/com/cboom/ai android/app/src/main/assets android/app/src/main/res/drawable android/app/src/main/res/xml build-out
+mkdir -p android/app/src/main/java/com/cboom/ai android/app/src/main/assets android/app/src/main/res/drawable android/app/src/main/res/xml android/app/src/main/res/values build-out
 
 cat > android/settings.gradle <<'EOF'
 pluginManagement {
@@ -155,6 +164,13 @@ cat > android/app/src/main/res/drawable/ic_launcher.xml <<'EOF'
 </vector>
 EOF
 
+cat > android/app/src/main/res/values/strings.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_description">Allows Codex AI to enter and submit actions you explicitly request in visible apps.</string>
+</resources>
+EOF
+
 cat > android/app/src/main/res/xml/codex_accessibility.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
@@ -163,7 +179,7 @@ cat > android/app/src/main/res/xml/codex_accessibility.xml <<'EOF'
     android:notificationTimeout="120"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="false"
-    android:description="Allows Codex AI to enter and submit actions you explicitly request in visible apps." />
+    android:description="@string/accessibility_description" />
 EOF
 
 cat > android/app/src/main/java/com/cboom/ai/VisibleActionService.java <<'EOF'
