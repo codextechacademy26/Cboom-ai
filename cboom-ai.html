@@ -18,6 +18,7 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
 .top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 0;z-index:3}
 .pill{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:.82rem;letter-spacing:.14em;text-transform:uppercase;color:var(--c1)}
 .pill i{width:9px;height:9px;border-radius:50%;background:var(--c1);box-shadow:0 0 10px var(--c1),0 0 20px var(--c2)}
+.net{padding:7px 9px;border:1px solid rgba(0,229,255,.28);border-radius:999px;background:rgba(8,12,30,.72);font: .58rem var(--mono);letter-spacing:.08em;color:var(--mut);white-space:nowrap}.net:before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;border-radius:50%;background:#42e89a;box-shadow:0 0 8px #42e89a}.net.off:before{background:#ff657a;box-shadow:0 0 8px #ff657a}
 .ic{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--c1);font-size:1.1rem;cursor:pointer}
 .ic.on{background:var(--grad);color:#03050d;border-color:transparent}
 .dock{position:fixed;left:0;right:0;bottom:0;padding:0 14px calc(env(safe-area-inset-bottom,0px) + 14px);z-index:3}
@@ -56,7 +57,7 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
 <body>
 <canvas id="orb"></canvas>
 <div class="top">
-  <div class="pill"><i></i><span id="nm"></span></div>
+  <div style="display:flex;align-items:center;gap:7px"><div class="pill"><i></i><span id="nm"></span></div><div class="net" id="net">NETWORK</div></div>
   <div style="display:flex;gap:8px"><button class="ic" id="hf" aria-label="Hands-free">∞</button><button class="ic" id="gear" aria-label="Settings">⚙</button></div>
 </div>
 <div class="pw" id="pw"></div>
@@ -187,6 +188,8 @@ function draw(){
 draw();
 function setState(s){state=s;$("mic").classList.toggle("live",s==="listening")}
 const hint=t=>$("hint").textContent=t;
+function updateNetworkStatus(){const el=$("net");if(!el)return;const on=navigator.onLine;el.textContent=on?"NETWORK READY":"OFFLINE MODE";el.classList.toggle("off",!on);el.title=on?"Network connection is available":"No network connection detected"}
+updateNetworkStatus();addEventListener("online",updateNetworkStatus);addEventListener("offline",updateNetworkStatus);
 
 /* ---------- chat ---------- */
 const msgs=[];
@@ -226,7 +229,8 @@ function think(raw){
   if(has("your name","who are you"))return{t:"I’m "+NAME+", your hands-free voice assistant."};
   if(has("who made you","who created you","who built you"))return{t:"I was built by Cboom APKs."};
   if(has("how are you"))return{t:"I’m doing great, thanks for asking. How about you?"};
-  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps on your phone, make calls, send texts, control the flashlight and volume, set alarms and timers, check the battery, open the camera, and search Google for you."};
+  if(has("what can you do","help me","your features"))return{t:"I can work offline with time and date, calculations, notes, jokes, facts, coin flips and dice. In the app I can also use phone controls such as flashlight, volume, battery, alarms, timers, camera and supported app actions. Online AI can answer more questions when your internet and AI key are available."};
+  if(has("what works offline","offline features","what can you do offline","offline commands"))return{t:"Offline, I can tell the time and date, calculate, save and read notes, tell jokes and facts, flip a coin, roll a dice, and use supported phone controls in the installed app. Advanced AI answers and web searches need internet."};
   if(has("what time","the time","current time"))return{t:"It’s "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+"."};
   if(has("the date","what day","todays date","date today"))return{t:"Today is "+new Date().toLocaleDateString(undefined,{weekday:"long",year:"numeric",month:"long",day:"numeric"})+"."};
   if(has("flip a coin","toss a coin","coin flip"))return{t:"It’s "+pick(["heads","tails"])+"."};
@@ -284,7 +288,8 @@ function think(raw){
   if(m=q.match(/^(?:search|google|look up|search for|find) (?:for )?(.+)$/))return{t:"Searching Google for "+m[1]+".",go:gs(m[1]),label:"Open Google search"};
   let e=q.replace(/what is|whats|calculate|how much is|equals|\?/g,"").replace(/plus/g,"+").replace(/minus/g,"-").replace(/multiplied by|times/g,"*").replace(/divided by|over/g,"/").replace(/(\d)\s*x\s*(\d)/g,"$1*$2").trim();
   if(/^[\d+\-*/.()\s]+$/.test(e)&&/\d/.test(e)&&/[+\-*/]/.test(e)){try{const v=Function('"use strict";return ('+e+')')();if(isFinite(v))return{t:"The answer is "+(Math.round(v*1e6)/1e6)+"."}}catch(x){}}
-  return{t:aiReady()?"":"I don’t know that one yet. Add an AI key in settings for smarter answers. Searching Google for now.",go:gs(raw),label:"Open Google search",ai:true};
+  if(aiReady())return{t:"",ai:true};
+  return{t:"I don’t know that one yet. My basic commands still work offline. Connect to the internet and add an AI key in settings for advanced answers.",go:navigator.onLine?gs(raw):null,label:"Search Google",ai:false};
 }
 
 /* ---------- voice output ---------- */
@@ -346,10 +351,11 @@ let rec=null,listening=false;
 function handle(text){
   addMsg("you",text);setState("thinking");hint("Thinking…");
   const r=think(text);
-  if(r.ai&&aiReady()){
+  if(r.ai&&aiReady()&&navigator.onLine){
     askAI(text).then(a=>{addMsg("ai",a);hint("Tap the glowing orb to speak");speak(a)}).catch(e=>{const m=aiErr(e&&e.status);addMsg("ai",m);hint(m+aiDetail(e));speak(m)});
     return;
   }
+  if(r.ai&&aiReady()&&!navigator.onLine){r.t="I’m offline right now, so I can’t reach the online AI. Your offline commands are still available.";r.go=null;r.ai=false}
   showOpen(r);
   setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go,r.act)},350);
 }
