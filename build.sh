@@ -3,7 +3,7 @@
 set -e
 
 rm -rf android build-out
-mkdir -p android/app/src/main/java/com/cboom/ai android/app/src/main/assets android/app/src/main/res/drawable build-out
+mkdir -p android/app/src/main/java/com/cboom/ai android/app/src/main/assets android/app/src/main/res/drawable android/app/src/main/res/xml build-out
 
 cat > android/settings.gradle <<'EOF'
 pluginManagement {
@@ -81,12 +81,33 @@ cat > android/app/src/main/AndroidManifest.xml <<'EOF'
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <package android:name="com.openai.chatgpt" />
+        <package android:name="com.google.android.apps.bard" />
+        <package android:name="ai.x.grok" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
     </queries>
 
     <application
         android:label="Codex AI"
         android:icon="@drawable/ic_launcher"
         android:allowBackup="true">
+        <service
+            android:name=".VisibleActionService"
+            android:label="Codex AI app interaction"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/codex_accessibility" />
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -132,6 +153,87 @@ cat > android/app/src/main/res/drawable/ic_launcher.xml <<'EOF'
         android:strokeWidth="2"
         android:pathData="M54,54m-36,0a36,36 0 1,1 72,0a36,36 0 1,1 -72,0" />
 </vector>
+EOF
+
+cat > android/app/src/main/res/xml/codex_accessibility.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewFocused"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="120"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="false"
+    android:description="Allows Codex AI to enter and submit actions you explicitly request in visible apps." />
+EOF
+
+cat > android/app/src/main/java/com/cboom/ai/VisibleActionService.java <<'EOF'
+package com.cboom.ai;
+
+import android.accessibilityservice.AccessibilityService;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+public class VisibleActionService extends AccessibilityService {
+    private static volatile Pending pending;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private static final class Pending {
+        final String pkg, message;
+        boolean filled = false;
+        Pending(String p, String m) { pkg=p; message=m; }
+    }
+    public static void queue(String pkg, String message) { pending = new Pending(pkg, message); }
+    public static boolean enabled(android.content.Context c) {
+        String enabled = android.provider.Settings.Secure.getString(c.getContentResolver(), android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return enabled != null && enabled.toLowerCase(Locale.ROOT).contains(c.getPackageName().toLowerCase(Locale.ROOT)) && enabled.toLowerCase(Locale.ROOT).contains("visibleactionservice");
+    }
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        Pending p = pending;
+        if (p == null || p.filled) return;
+        CharSequence packageName = event.getPackageName();
+        if (packageName == null || !p.pkg.equals(packageName.toString())) return;
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return;
+        AccessibilityNodeInfo edit = findEditable(root);
+        if (edit == null) return;
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, p.message);
+        if (!edit.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return;
+        p.filled = true;
+        handler.postDelayed(() -> clickSend(getRootInActiveWindow()), 900);
+    }
+    private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo n) {
+        if (n == null) return null;
+        if (n.isEditable() && n.isEnabled()) return n;
+        for (int i=0;i<n.getChildCount();i++) {
+            AccessibilityNodeInfo x=findEditable(n.getChild(i));
+            if (x!=null) return x;
+        }
+        return null;
+    }
+    private void clickSend(AccessibilityNodeInfo root) {
+        if (root == null) return;
+        List<AccessibilityNodeInfo> nodes = new ArrayList<>(); collect(root,nodes);
+        for (AccessibilityNodeInfo n : nodes) {
+            String t = ((n.getText()==null?"":n.getText().toString())+" "+(n.getContentDescription()==null?"":n.getContentDescription().toString())).toLowerCase(Locale.ROOT);
+            if ((t.equals("send") || t.contains("send message") || t.equals("submit") || t.contains("send button")) && n.isEnabled()) {
+                AccessibilityNodeInfo c=n;
+                while(c!=null && !c.isClickable()) c=c.getParent();
+                if(c!=null) { c.performAction(AccessibilityNodeInfo.ACTION_CLICK); pending=null; return; }
+            }
+        }
+        // Leave the text visibly composed if the app uses an unknown send control.
+    }
+    private void collect(AccessibilityNodeInfo n,List<AccessibilityNodeInfo> out) {
+        if(n==null)return; out.add(n); for(int i=0;i<n.getChildCount();i++) collect(n.getChild(i),out);
+    }
+    @Override public void onInterrupt() { }
+}
 EOF
 
 cat > android/app/src/main/java/com/cboom/ai/MainActivity.java <<'EOF'
@@ -494,6 +596,44 @@ public class MainActivity extends Activity {
             }
             openExternal(u);
             return true;
+        }
+
+        @JavascriptInterface
+        public String visibleMessage(final String target, final String phone, final String body, final String packageName) {
+            if (!VisibleActionService.enabled(MainActivity.this)) return "accessibility_off";
+            try {
+                String pkg = packageName;
+                Intent launch;
+                if ("whatsapp".equals(target)) {
+                    pkg = getPackageManager().getLaunchIntentForPackage("com.whatsapp") != null ? "com.whatsapp" : "com.whatsapp.w4b";
+                    if (getPackageManager().getLaunchIntentForPackage(pkg) == null) return "missing_app";
+                    Uri uri = Uri.parse("https://wa.me/" + Uri.encode(phone).replace("%2B", ""));
+                    launch = new Intent(Intent.ACTION_VIEW, uri);
+                    launch.setPackage(pkg);
+                } else if ("sms".equals(target)) {
+                    pkg = getPackageManager().resolveActivity(new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"+Uri.encode(phone))), 0) != null ?
+                        getPackageManager().resolveActivity(new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"+Uri.encode(phone))), 0).activityInfo.packageName : "";
+                    launch = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(phone)));
+                    launch.putExtra("sms_body", body);
+                } else {
+                    launch = getPackageManager().getLaunchIntentForPackage(packageName);
+                    if (launch == null) return "missing_app";
+                    pkg = packageName;
+                }
+                if (pkg == null || pkg.length()==0) return "missing_app";
+                VisibleActionService.queue(pkg, body);
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(launch);
+                return "ok";
+            } catch (Exception e) { return "error"; }
+        }
+
+        @JavascriptInterface
+        public void accessibilitySettings() {
+            runOnUiThread(() -> {
+                try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception ignored) { }
+            });
         }
 
         @JavascriptInterface

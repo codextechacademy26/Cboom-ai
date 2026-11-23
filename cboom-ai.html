@@ -18,7 +18,6 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
 .top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 0;z-index:3}
 .pill{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:.82rem;letter-spacing:.14em;text-transform:uppercase;color:var(--c1)}
 .pill i{width:9px;height:9px;border-radius:50%;background:var(--c1);box-shadow:0 0 10px var(--c1),0 0 20px var(--c2)}
-.net{padding:7px 9px;border:1px solid rgba(0,229,255,.28);border-radius:999px;background:rgba(8,12,30,.72);font: .58rem var(--mono);letter-spacing:.08em;color:var(--mut);white-space:nowrap}.net:before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;border-radius:50%;background:#42e89a;box-shadow:0 0 8px #42e89a}.net.off:before{background:#ff657a;box-shadow:0 0 8px #ff657a}
 .ic{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--c1);font-size:1.1rem;cursor:pointer}
 .ic.on{background:var(--grad);color:#03050d;border-color:transparent}
 .dock{position:fixed;left:0;right:0;bottom:0;padding:0 14px calc(env(safe-area-inset-bottom,0px) + 14px);z-index:3}
@@ -57,7 +56,7 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
 <body>
 <canvas id="orb"></canvas>
 <div class="top">
-  <div style="display:flex;align-items:center;gap:7px"><div class="pill"><i></i><span id="nm"></span></div><div class="net" id="net">NETWORK</div></div>
+  <div class="pill"><i></i><span id="nm"></span></div>
   <div style="display:flex;gap:8px"><button class="ic" id="hf" aria-label="Hands-free">∞</button><button class="ic" id="gear" aria-label="Settings">⚙</button></div>
 </div>
 <div class="pw" id="pw"></div>
@@ -188,8 +187,6 @@ function draw(){
 draw();
 function setState(s){state=s;$("mic").classList.toggle("live",s==="listening")}
 const hint=t=>$("hint").textContent=t;
-function updateNetworkStatus(){const el=$("net");if(!el)return;const on=navigator.onLine;el.textContent=on?"NETWORK READY":"OFFLINE MODE";el.classList.toggle("off",!on);el.title=on?"Network connection is available":"No network connection detected"}
-updateNetworkStatus();addEventListener("online",updateNetworkStatus);addEventListener("offline",updateNetworkStatus);
 
 /* ---------- chat ---------- */
 const msgs=[];
@@ -229,8 +226,7 @@ function think(raw){
   if(has("your name","who are you"))return{t:"I’m "+NAME+", your hands-free voice assistant."};
   if(has("who made you","who created you","who built you"))return{t:"I was built by Cboom APKs."};
   if(has("how are you"))return{t:"I’m doing great, thanks for asking. How about you?"};
-  if(has("what can you do","help me","your features"))return{t:"I can work offline with time and date, calculations, notes, jokes, facts, coin flips and dice. In the app I can also use phone controls such as flashlight, volume, battery, alarms, timers, camera and supported app actions. Online AI can answer more questions when your internet and AI key are available."};
-  if(has("what works offline","offline features","what can you do offline","offline commands"))return{t:"Offline, I can tell the time and date, calculate, save and read notes, tell jokes and facts, flip a coin, roll a dice, and use supported phone controls in the installed app. Advanced AI answers and web searches need internet."};
+  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps, send visible WhatsApp and SMS messages, enter questions into supported AI apps, make calls, control the flashlight and volume, set alarms and timers, check the battery, open the camera, and search Google for you."};
   if(has("what time","the time","current time"))return{t:"It’s "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+"."};
   if(has("the date","what day","todays date","date today"))return{t:"Today is "+new Date().toLocaleDateString(undefined,{weekday:"long",year:"numeric",month:"long",day:"numeric"})+"."};
   if(has("flip a coin","toss a coin","coin flip"))return{t:"It’s "+pick(["heads","tails"])+"."};
@@ -270,6 +266,26 @@ function think(raw){
     if(NATIVE&&nm){const c=findContact(nm);if(c==="denied")return{t:NEEDC};if(c)return{t:"Calling "+c.name+".",go:"tel:"+c.num,label:"Call "+c.name,act:{k:"call",n:c.num}};return{t:"I couldn’t find "+nm+" in your contacts."}}
     return{t:"Opening the dialer.",go:"tel:",label:"Open dialer",act:{k:"url",u:"tel:"}};
   }
+  // Compound visible actions: open an app and perform the requested task in its UI.
+  if(m=raw.match(/^(?:please\s+)?(?:open\s+)?(whatsapp|chatgpt|chat gpt|gemini|grok)(?:\s+app)?\s+(?:and\s+)?(?:ask|tell|send|message)\s+(.+)$/i)){
+    const target=m[1].toLowerCase().replace(/\s+/g,"");
+    const rest=m[2].trim();
+    if(target==="whatsapp"){
+      const z=rest.match(/^(.+?)\s+to\s+(.+)$/i);
+      if(!z)return{t:"Tell me the message and recipient, for example: open WhatsApp and send hello to Ruyah."};
+      if(!NATIVE)return{t:NOAPP};
+      const c=findContact(z[2].trim());if(c==="denied")return{t:NEEDC};if(!c)return{t:"I couldn’t find "+z[2]+" in your contacts."};
+      return{t:"Opening WhatsApp and preparing your message to "+c.name+".",act:{k:"visibleMessage",target:"whatsapp",phone:c.e164||c.num,body:z[1].trim()}};
+    }
+    if(!NATIVE)return{t:NOAPP};
+    const pkgs={chatgpt:"com.openai.chatgpt",gemini:"com.google.android.apps.bard",grok:"ai.x.grok"};
+    return{t:"Opening "+(target==="chatgpt"?"ChatGPT":target.charAt(0).toUpperCase()+target.slice(1))+" and entering your question.",act:{k:"visibleMessage",target:target,body:rest,packageName:pkgs[target]}};
+  }
+  if(m=raw.match(/^(?:please\s+)?send\s+(.+?)\s+to\s+(.+?)(?:\s+(?:via|by)\s+sms)?$/i)){
+    if(!NATIVE)return{t:NOAPP};
+    const c=findContact(m[2].trim());if(c==="denied")return{t:NEEDC};if(!c)return{t:"I couldn’t find "+m[2]+" in your contacts."};
+    return{t:"Opening Messages and preparing your SMS to "+c.name+".",act:{k:"visibleMessage",target:"sms",phone:c.num,body:m[1].trim()}};
+  }
   if(m=q.match(/^(text|sms|message|whatsapp)(?: to| message)? (.+)$/)){
     const verb=m[1],pre=m[2].split(/ (?:saying|say|that says|with) /)[0].trim(),b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"",n=digits(pre),viaWA=verb==="whatsapp"||(verb==="message"&&!n);
     if(n){if(viaWA){const w=n.replace("+","");return{t:"Opening WhatsApp for "+w.split("").join(" ")+".",go:"https://wa.me/"+w+(b?"?text="+encodeURIComponent(b):""),label:"WhatsApp "+w,act:{k:"wa",n:w,b:b}}}return{t:"Opening a text to "+n.split("").join(" ")+".",go:"sms:"+n+(b?"?body="+encodeURIComponent(b):""),label:"Text "+n,act:{k:"sms",n:n,b:b}}}
@@ -288,8 +304,7 @@ function think(raw){
   if(m=q.match(/^(?:search|google|look up|search for|find) (?:for )?(.+)$/))return{t:"Searching Google for "+m[1]+".",go:gs(m[1]),label:"Open Google search"};
   let e=q.replace(/what is|whats|calculate|how much is|equals|\?/g,"").replace(/plus/g,"+").replace(/minus/g,"-").replace(/multiplied by|times/g,"*").replace(/divided by|over/g,"/").replace(/(\d)\s*x\s*(\d)/g,"$1*$2").trim();
   if(/^[\d+\-*/.()\s]+$/.test(e)&&/\d/.test(e)&&/[+\-*/]/.test(e)){try{const v=Function('"use strict";return ('+e+')')();if(isFinite(v))return{t:"The answer is "+(Math.round(v*1e6)/1e6)+"."}}catch(x){}}
-  if(aiReady())return{t:"",ai:true};
-  return{t:"I don’t know that one yet. My basic commands still work offline. Connect to the internet and add an AI key in settings for advanced answers.",go:navigator.onLine?gs(raw):null,label:"Search Google",ai:false};
+  return{t:aiReady()?"":"I don’t know that one yet. Add an AI key in settings for smarter answers. Searching Google for now.",go:gs(raw),label:"Open Google search",ai:true};
 }
 
 /* ---------- voice output ---------- */
@@ -312,7 +327,15 @@ const cloneOn=()=>S.mode==="clone"&&S.el.k.trim().length>10&&!!S.el.id;
 function speak(text,go,act){
   const st=STYLES[S.style]||STYLES.normal;
   let done=false;
-  const end=()=>{if(done)return;done=true;setState("idle");if(go||act){if(NATIVE)nativePerform(go,act);else if(go&&/^https?:/.test(go))openUrl(go)}else if(S.hands)setTimeout(listen,350)};
+  const end=()=>{
+    if(done)return;done=true;setState("idle");
+    if(go||act){
+      if(NATIVE)nativePerform(go,act);else if(go&&/^https?:/.test(go))openUrl(go);
+      // Resume after in-app device controls; external activities such as calls,
+      // messages, websites and the camera should keep the microphone stopped.
+      if(S.hands&&act&&act.k==="dev"&&["torch","volume","alarm","timer"].includes(act.c))setTimeout(()=>{if(S.hands&&!listening)listen()},700);
+    }else if(S.hands)setTimeout(()=>{if(S.hands&&!listening)listen()},350);
+  };
   const phone=()=>{
     if(NATIVE){curEnd=end;setState("speaking");setTimeout(end,30000);Android.speak(text,S.voice||"",st[1],Math.min(2,S.rate*st[2]));return}
     if(!hasTTS){setState("idle");if(go)openUrl(go);return}
@@ -339,6 +362,7 @@ function nativePerform(go,a){
     if(a.k==="call")Android.call(a.n);
     else if(a.k==="sms")Android.sms(a.n,a.b||"");
     else if(a.k==="wa")Android.openUrl("https://wa.me/"+a.n+(a.b?"?text="+encodeURIComponent(a.b):""));
+    else if(a.k==="visibleMessage"){const r=Android.visibleMessage(a.target,a.phone||"",a.body||"",a.packageName||"");if(r==="accessibility_off"){const m="To type and send messages visibly in other apps, enable Codex AI Accessibility in Android settings. I’m opening the setting now.";addMsg("ai",m);hint(m);Android.accessibilitySettings()}else if(r!=="ok"){const m="I couldn’t start that action. Check that the app is installed.";addMsg("ai",m);hint(m)}}
     else if(a.k==="url")Android.openUrl(a.u);
     else if(a.k==="dev")Android.device(a.c,a.a||"");
     else if(a.k==="app"){if(!Android.openApp(a.name)){const m="I couldn’t find an app called "+a.name+", so I’m looking for its website.";addMsg("ai",m);hint(m);speak(m,"https://www.google.com/search?btnI=1&q="+encodeURIComponent(a.name+" official website"))}}
@@ -349,13 +373,25 @@ function nativePerform(go,a){
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null,listening=false;
 function handle(text){
+  const command=norm(text);
+  if(/^(stop listening|stop hands ?free|turn off hands ?free|disable hands ?free|go to sleep)$/.test(command)){
+    S.hands=false;$("hf").classList.remove("on");save();
+    addMsg("you",text);addMsg("ai","Hands-free is off. Tap the microphone whenever you want me again.");
+    hint("Hands-free is off");setState("idle");
+    if(NATIVE)Android.stopListen();else{try{rec&&rec.abort()}catch(e){}}
+    listening=false;return;
+  }
+  if(/^(start listening|start hands ?free|turn on hands ?free|enable hands ?free|keep listening)$/.test(command)){
+    S.hands=true;$("hf").classList.add("on");save();
+    addMsg("you",text);addMsg("ai","Hands-free is on. I’ll keep listening after I reply.");
+    hint("Hands-free is on");setTimeout(()=>{if(S.hands&&!listening)listen()},350);return;
+  }
   addMsg("you",text);setState("thinking");hint("Thinking…");
   const r=think(text);
-  if(r.ai&&aiReady()&&navigator.onLine){
+  if(r.ai&&aiReady()){
     askAI(text).then(a=>{addMsg("ai",a);hint("Tap the glowing orb to speak");speak(a)}).catch(e=>{const m=aiErr(e&&e.status);addMsg("ai",m);hint(m+aiDetail(e));speak(m)});
     return;
   }
-  if(r.ai&&aiReady()&&!navigator.onLine){r.t="I’m offline right now, so I can’t reach the online AI. Your offline commands are still available.";r.go=null;r.ai=false}
   showOpen(r);
   setTimeout(()=>{addMsg("ai",r.t);hint("Tap the glowing orb to speak");speak(r.t,r.go,r.act)},350);
 }
@@ -560,17 +596,18 @@ renderApps();
 /* ---------- native app callbacks ---------- */
 window.nativeListening=()=>{listening=true;setState("listening");hint("Listening…")};
 window.nativePartial=t=>hint(t||"Listening…");
-window.nativeResult=t=>{listening=false;handle(t)};
-window.nativeError=c=>{listening=false;setState("idle");hint(c==="blocked"?"Microphone permission needed. Allow it, then tap again.":c==="none"?"I didn’t catch that. Tap to try again.":c==="unavailable"?"Speech recognition isn’t available. Enable the Google app.":"Something went wrong. Tap to try again.")};
+window.nativeResult=t=>{listening=false;if(manualListenStop){manualListenStop=false;setState("idle");return}handle(t)};
+let manualListenStop=false;
+window.nativeError=c=>{listening=false;if(manualListenStop){manualListenStop=false;setState("idle");return}setState("idle");hint(c==="blocked"?"Microphone permission needed. Allow it, then tap again.":c==="none"?"I didn’t catch that. Tap to try again.":c==="unavailable"?"Speech recognition isn’t available. Enable the Google app.":"Something went wrong. Tap to try again.")};
 window.nativeSpeakStart=()=>setState("speaking");
 window.nativeSpeakEnd=()=>{if(curEnd)curEnd()};
 
 /* ---------- events ---------- */
 $("orb").onclick=listen;$("mic").onclick=listen;
-$("stop").onclick=()=>{stopCloud();if(NATIVE){Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Tap the glowing orb to speak")};
+$("stop").onclick=()=>{S.hands=false;$("hf").classList.remove("on");save();stopCloud();if(NATIVE){manualListenStop=true;Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Hands-free stopped")};
 $("kb").onclick=()=>{$("tf").classList.toggle("show");if($("tf").classList.contains("show"))$("ti").focus()};
 $("tf").onsubmit=e=>{e.preventDefault();const v=$("ti").value.trim();if(v){$("ti").value="";handle(v)}};
-$("hf").onclick=()=>{S.hands=!S.hands;$("hf").classList.toggle("on",S.hands);save();hint(S.hands?"Hands-free is on":"Hands-free is off")};
+$("hf").onclick=()=>{S.hands=!S.hands;$("hf").classList.toggle("on",S.hands);save();hint(S.hands?"Hands-free is on":"Hands-free is off");if(S.hands&&!listening)setTimeout(()=>{if(S.hands&&!listening)listen()},250);else if(!S.hands&&listening){if(NATIVE){manualListenStop=true;Android.stopListen()}else{try{rec&&rec.abort()}catch(e){}}listening=false;setState("idle")}};
 $("gear").onclick=()=>{if(NATIVE)fillVoices();$("set").classList.add("show")};
 $("close").onclick=()=>$("set").classList.remove("show");
 $("vsel").onchange=e=>{S.voice=e.target.value;save()};
