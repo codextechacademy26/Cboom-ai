@@ -56,7 +56,7 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
 <body>
 <canvas id="orb"></canvas>
 <div class="top">
-  <div class="pill"><i></i><span id="nm"></span></div>
+  <div class="pill"><i></i><span id="nm"></span><span id="stat" style="opacity:.75;font-size:.68rem"></span></div>
   <div style="display:flex;gap:8px"><button class="ic" id="hf" aria-label="Hands-free">∞</button><button class="ic" id="gear" aria-label="Settings">⚙</button></div>
 </div>
 <div class="pw" id="pw"></div>
@@ -90,6 +90,8 @@ body::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:none;back
     <div class="row"><button id="recbtn">● Record</button><button id="mkclone" class="p">Create my clone</button></div>
     <div id="clonemsg" style="color:var(--mut);font-size:.82rem;margin-top:8px"></div>
   </div>
+  <label>Speech language (what I listen for)</label>
+  <select id="slang"><option value="en-US">English (US)</option><option value="en-NG">English (Nigeria)</option><option value="en-GB">English (UK)</option><option value="en-IN">English (India)</option></select>
   <label>Speed</label>
   <input type="range" id="rate" min="0.6" max="1.5" step="0.05">
   <label>Hall echo (cloud and clone voices)</label>
@@ -127,7 +129,7 @@ $("pw").innerHTML="Powered by <b></b>";$("pw").querySelector("b").textContent=PO
 
 /* ---------- settings ---------- */
 const STYLES={normal:["Normal",1,1],deep:["Deep",.6,.92],bright:["Bright",1.45,1.05],robot:["Robot",.75,.88],fast:["Quick",1.1,1.25],calm:["Calm",.9,.8]};
-let S={voice:"",style:"normal",rate:1,hands:false,apps:{},ai:{p:"gemini",k:"",m:""},eng:"cloud",tts:{v:"Kore",m:""},echo:true,echoAmt:60,mode:"choose",el:{k:"",m:"",id:""},notes:[]};
+let S={voice:"",style:"normal",rate:1,hands:false,apps:{},ai:{p:"gemini",k:"",m:""},eng:"cloud",tts:{v:"Kore",m:""},echo:true,echoAmt:60,lang:"en-US",mode:"choose",el:{k:"",m:"",id:""},notes:[]};
 try{Object.assign(S,JSON.parse(localStorage.getItem("cboomai")||"{}"))}catch(e){}
 const save=()=>{try{localStorage.setItem("cboomai",JSON.stringify(S))}catch(e){}};
 
@@ -185,7 +187,9 @@ function draw(){
   requestAnimationFrame(draw);
 }
 draw();
-function setState(s){state=s;$("mic").classList.toggle("live",s==="listening")}
+function updStat(){const off=typeof navigator!=="undefined"&&navigator.onLine===false;$("stat").textContent=(state==="idle"?"":"· "+state)+(off?" · offline":"")}
+function setState(s){state=s;$("mic").classList.toggle("live",s==="listening");updStat()}
+addEventListener("online",updStat);addEventListener("offline",updStat);
 const hint=t=>$("hint").textContent=t;
 
 /* ---------- chat ---------- */
@@ -219,14 +223,43 @@ const NW={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,ni
 function digits(s){s=s.replace(/\b(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/g,w=>NW[w]);const p=s.trim().startsWith("+")?"+":"";const d=s.replace(/\D/g,"");return d.length>=5?p+d:""}
 const gs=q=>"https://www.google.com/search?q="+encodeURIComponent(q);
 function norm(s){return s.toLowerCase().replace(/[’']/g,"").replace(/[^a-z0-9+\-*/.()\s]/g," ").replace(/\s+/g," ").trim()}
+function cleanLead(s){
+  const o=(s||"").trim();
+  let t=o.replace(/^(?:hey|ok|okay|hi)?[\s,]*(?:codex(?: ai)?|codecs|cortex)[\s,.:!]+/i,"");
+  t=t.replace(/^(?:(?:please|kindly|can you|could you|would you|will you|i want you to|i want to|i need you to|i would like you to)\s+)+/i,"");
+  t=t.replace(/[\s,.!]*(?:please|kindly)[\s.!]*$/i,"");
+  return t.trim()||o;
+}
+const VERB=/^(?:open|launch|start|call|dial|text|message|whatsapp|play|turn|switch|set|remind|take|read|what|whats|tell|go to|visit|volume|mute|flashlight|torch|search|delete|clear|note|show|how)\b/i;
+function splitCmds(text){
+  const parts=text.split(/(?:,\s*and then\s+|\s+and then\s+|\s+then\s+|,\s*and\s+|\s+and\s+|;\s*)/i).map(x=>x.trim()).filter(Boolean);
+  if(parts.length<2)return null;
+  return parts.every(x=>VERB.test(cleanLead(x)))?parts:null;
+}
+function runMany(parts){
+  const rs=parts.map(x=>think(x));
+  let t=rs.map(r=>r.t).filter(Boolean).join(" ");
+  const acts=rs.filter(r=>r.act||r.go);
+  const f=acts[0]||{};
+  if(acts.length>1)t+=" I can only do one app action at a time, so I did the first one.";
+  return{t:t,go:f.go,act:f.act,label:f.label};
+}
+const AIAPPS={chatgpt:["com.openai.chatgpt","https://chatgpt.com/?q=","ChatGPT"],gemini:["com.google.android.apps.bard","https://gemini.google.com/app","Gemini"],grok:["ai.x.grok","https://grok.com/?q=","Grok"],claude:["com.anthropic.claude","https://claude.ai/new?q=","Claude"],perplexity:["ai.perplexity.app.android","https://www.perplexity.ai/search?q=","Perplexity"],copilot:["com.microsoft.copilot","https://copilot.microsoft.com/?q=","Copilot"],deepseek:["com.deepseek.chat","https://chat.deepseek.com/","DeepSeek"]};
+const AIN="(chat ?gpt|gemini|grok|claude|perplexity|copilot|deep ?seek)";
+const RE_ASK1=new RegExp("^(?:open |launch |go to |use )?"+AIN+"(?: app)?,? (?:and |then )?(?:please )?(?:ask|tell it|type|write|search(?: for)?) (?:it |them )?(?:to |about )?(.+)$","i");
+const RE_ASK2=new RegExp("^ask "+AIN+" (?:to |about )?(.+)$","i");
+function aiKey(x){x=x.toLowerCase().replace(/\s+/g,"");return x==="chatgpt"||x==="gpt"?"chatgpt":x}
+const needsWeb=q=>/\b(news|latest|today|tonight|yesterday|score|scores|match|weather|forecast|price|prices|rate|rates|exchange|stock|trending|current|currently|right now|this week|this year|who won|result|results|president|ceo|release date)\b/i.test(q);
 function think(raw){
+  raw=cleanLead(raw);
   const q=norm(raw),has=(...w)=>w.some(x=>q.includes(x));let m;
   if(!q)return{t:"I didn’t catch that. Try again."};
+  if(/^(?:repeat that|repeat|say that again|what did you say)$/.test(q))return{t:lastReply||"I haven’t said anything yet."};
   if(/^(hi|hello|hey|yo|hola)\b/.test(q)||has("good morning","good afternoon","good evening"))return{t:pick(["Hello! How can I help you?","Hey there! What can I do for you?","Hi! I’m listening."])};
   if(has("your name","who are you"))return{t:"I’m "+NAME+", your hands-free voice assistant."};
   if(has("who made you","who created you","who built you"))return{t:"I was built by Cboom APKs."};
   if(has("how are you"))return{t:"I’m doing great, thanks for asking. How about you?"};
-  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps, send visible WhatsApp and SMS messages, enter questions into supported AI apps, make calls, control the flashlight and volume, set alarms and timers, check the battery, open the camera, and search Google for you."};
+  if(has("what can you do","help me","your features"))return{t:"I can tell the time and date, do math, tell jokes and facts, flip a coin, roll a dice, open apps on your phone, send questions to ChatGPT or Gemini, make calls, send texts, control the flashlight and volume, set alarms and timers, check the battery, open the camera, and search Google for you."};
   if(has("what time","the time","current time"))return{t:"It’s "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+"."};
   if(has("the date","what day","todays date","date today"))return{t:"Today is "+new Date().toLocaleDateString(undefined,{weekday:"long",year:"numeric",month:"long",day:"numeric"})+"."};
   if(has("flip a coin","toss a coin","coin flip"))return{t:"It’s "+pick(["heads","tails"])+"."};
@@ -266,30 +299,15 @@ function think(raw){
     if(NATIVE&&nm){const c=findContact(nm);if(c==="denied")return{t:NEEDC};if(c)return{t:"Calling "+c.name+".",go:"tel:"+c.num,label:"Call "+c.name,act:{k:"call",n:c.num}};return{t:"I couldn’t find "+nm+" in your contacts."}}
     return{t:"Opening the dialer.",go:"tel:",label:"Open dialer",act:{k:"url",u:"tel:"}};
   }
-  // Compound visible actions: open an app and perform the requested task in its UI.
-  if(m=raw.match(/^(?:please\s+)?(?:open\s+)?(whatsapp|chatgpt|chat gpt|gemini|grok)(?:\s+app)?\s+(?:and\s+)?(?:ask|tell|send|message)\s+(.+)$/i)){
-    const target=m[1].toLowerCase().replace(/\s+/g,"");
-    const rest=m[2].trim();
-    if(target==="whatsapp"){
-      const z=rest.match(/^(.+?)\s+to\s+(.+)$/i);
-      if(!z)return{t:"Tell me the message and recipient, for example: open WhatsApp and send hello to Ruyah."};
-      if(!NATIVE)return{t:NOAPP};
-      const c=findContact(z[2].trim());if(c==="denied")return{t:NEEDC};if(!c)return{t:"I couldn’t find "+z[2]+" in your contacts."};
-      return{t:"Opening WhatsApp and preparing your message to "+c.name+".",act:{k:"visibleMessage",target:"whatsapp",phone:c.e164||c.num,body:z[1].trim()}};
-    }
-    if(!NATIVE)return{t:NOAPP};
-    const pkgs={chatgpt:"com.openai.chatgpt",gemini:"com.google.android.apps.bard",grok:"ai.x.grok"};
-    return{t:"Opening "+(target==="chatgpt"?"ChatGPT":target.charAt(0).toUpperCase()+target.slice(1))+" and entering your question.",act:{k:"visibleMessage",target:target,body:rest,packageName:pkgs[target]}};
-  }
-  if(m=raw.match(/^(?:please\s+)?send\s+(.+?)\s+to\s+(.+?)(?:\s+(?:via|by)\s+sms)?$/i)){
-    if(!NATIVE)return{t:NOAPP};
-    const c=findContact(m[2].trim());if(c==="denied")return{t:NEEDC};if(!c)return{t:"I couldn’t find "+m[2]+" in your contacts."};
-    return{t:"Opening Messages and preparing your SMS to "+c.name+".",act:{k:"visibleMessage",target:"sms",phone:c.num,body:m[1].trim()}};
-  }
   if(m=q.match(/^(text|sms|message|whatsapp)(?: to| message)? (.+)$/)){
     const verb=m[1],pre=m[2].split(/ (?:saying|say|that says|with) /)[0].trim(),b=(raw.match(/(?:saying|say|that says|with)\s+(.+)$/i)||[])[1]||"",n=digits(pre),viaWA=verb==="whatsapp"||(verb==="message"&&!n);
     if(n){if(viaWA){const w=n.replace("+","");return{t:"Opening WhatsApp for "+w.split("").join(" ")+".",go:"https://wa.me/"+w+(b?"?text="+encodeURIComponent(b):""),label:"WhatsApp "+w,act:{k:"wa",n:w,b:b}}}return{t:"Opening a text to "+n.split("").join(" ")+".",go:"sms:"+n+(b?"?body="+encodeURIComponent(b):""),label:"Text "+n,act:{k:"sms",n:n,b:b}}}
     if(NATIVE&&pre){const c=findContact(pre);if(c==="denied")return{t:NEEDC};if(!c)return{t:"I couldn’t find "+pre+" in your contacts."};const w=c.e164.replace("+","");if(viaWA)return{t:"Opening WhatsApp for "+c.name+".",go:"https://wa.me/"+w+(b?"?text="+encodeURIComponent(b):""),label:"WhatsApp "+c.name,act:{k:"wa",n:w,b:b}};return{t:"Opening a text to "+c.name+".",go:"sms:"+c.num,label:"Text "+c.name,act:{k:"sms",n:c.num,b:b}}}
+  }
+  if(m=raw.match(RE_ASK1)||raw.match(RE_ASK2)){
+    const A=AIAPPS[aiKey(m[1])],ques=m[2].trim(),web=A[1]+(A[1].indexOf("?q=")>0?encodeURIComponent(ques):"");
+    if(NATIVE)return{t:"Opening "+A[2]+" with your question. If the box is empty, paste it. I copied it for you.",act:{k:"ai",pkg:A[0],q:ques,web:web}};
+    return{t:"Opening "+A[2]+" with your question.",go:web,label:"Open "+A[2]};
   }
   if(m=q.match(/^(?:go to|visit|browse|open website|open the website|open site) (.+)$/)){
     const site=m[1].replace(/ dot /g,".").replace(/\s+/g,""),u=/\.[a-z]{2,}$/.test(site)?"https://"+site:"https://www.google.com/search?btnI=1&q="+encodeURIComponent(m[1]+" official website");
@@ -320,22 +338,15 @@ if(NATIVE){fillVoices();setTimeout(fillVoices,1500)}else if(hasTTS){fillVoices()
 Object.keys(STYLES).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=STYLES[k][0];$("ssel").appendChild(o)});
 $("ssel").value=S.style;$("rate").value=S.rate;$("hf").classList.toggle("on",S.hands);
 function openUrl(u){try{if(/^(intent|tel|sms|mailto):/.test(u)){location.href=u;return}window.open(u,"_blank")||(location.href=u)}catch(e){location.href=u}}
-let curEnd=null,actx=null,cloudSrc=null,irBuf=null;
+let curEnd=null,actx=null,cloudSrc=null,irBuf=null,speakTok=0,lastReply="";
 function stopCloud(){if(cloudSrc){cloudSrc.onended=null;try{cloudSrc.stop()}catch(e){}cloudSrc=null}}
 const cloudOn=()=>S.eng==="cloud"&&S.ai.p==="gemini"&&aiReady();
 const cloneOn=()=>S.mode==="clone"&&S.el.k.trim().length>10&&!!S.el.id;
 function speak(text,go,act){
+  const tok=++speakTok;if(text)lastReply=text;
   const st=STYLES[S.style]||STYLES.normal;
   let done=false;
-  const end=()=>{
-    if(done)return;done=true;setState("idle");
-    if(go||act){
-      if(NATIVE)nativePerform(go,act);else if(go&&/^https?:/.test(go))openUrl(go);
-      // Resume after in-app device controls; external activities such as calls,
-      // messages, websites and the camera should keep the microphone stopped.
-      if(S.hands&&act&&act.k==="dev"&&["torch","volume","alarm","timer"].includes(act.c))setTimeout(()=>{if(S.hands&&!listening)listen()},700);
-    }else if(S.hands)setTimeout(()=>{if(S.hands&&!listening)listen()},350);
-  };
+  const end=()=>{if(done)return;done=true;setState("idle");if(go||act){if(NATIVE)nativePerform(go,act);else if(go&&/^https?:/.test(go))openUrl(go)}else if(S.hands)setTimeout(listen,350)};
   const phone=()=>{
     if(NATIVE){curEnd=end;setState("speaking");setTimeout(end,30000);Android.speak(text,S.voice||"",st[1],Math.min(2,S.rate*st[2]));return}
     if(!hasTTS){setState("idle");if(go)openUrl(go);return}
@@ -349,22 +360,26 @@ function speak(text,go,act){
   };
   stopCloud();
   if(NATIVE)Android.stopSpeak();else if(hasTTS)speechSynthesis.cancel();
-  if(S.mode==="clone"){
-    if(cloneOn()){curEnd=null;setState("thinking");elSpeak(text,end).then(()=>{$("ttsmsg").textContent=""}).catch(e=>{$("ttsmsg").textContent="Clone voice failed: "+(e&&e.status?e.status+" ":"")+(e&&e.msg?String(e.msg).slice(0,140):"")+". Using the phone voice.";phone()})}
-    else{$("ttsmsg").textContent="Your voice clone isn’t ready yet. Using the phone voice.";phone()}
-  }else if(cloudOn()){
+  const tryCloud=fn=>{
     curEnd=null;setState("thinking");
-    cloudSpeak(text,end).then(()=>{$("ttsmsg").textContent=""}).catch(e=>{$("ttsmsg").textContent="Cloud voice failed: "+(e&&e.status?e.status+" ":"")+(e&&e.msg?String(e.msg).slice(0,140):"")+". Using the phone voice.";phone()});
-  }else phone();
+    let dead=false;const ok=()=>!dead&&tok===speakTok;
+    const timer=setTimeout(()=>{if(!dead){dead=true;$("ttsmsg").textContent="The cloud voice was too slow. Using the phone voice.";phone()}},12000);
+    fn(text,end,ok).then(()=>{clearTimeout(timer);if(ok())$("ttsmsg").textContent=""}).catch(e=>{clearTimeout(timer);if(dead||tok!==speakTok)return;dead=true;$("ttsmsg").textContent="Voice failed: "+(e&&e.status?e.status+" ":"")+(e&&e.msg?String(e.msg).slice(0,140):"")+". Using the phone voice.";phone()});
+  };
+  if(S.mode==="clone"){
+    if(cloneOn())tryCloud(elSpeak);
+    else{$("ttsmsg").textContent="Your voice clone isn’t ready yet. Using the phone voice.";phone()}
+  }else if(cloudOn())tryCloud(cloudSpeak);
+  else phone();
 }
 function nativePerform(go,a){
   if(a){
     if(a.k==="call")Android.call(a.n);
     else if(a.k==="sms")Android.sms(a.n,a.b||"");
     else if(a.k==="wa")Android.openUrl("https://wa.me/"+a.n+(a.b?"?text="+encodeURIComponent(a.b):""));
-    else if(a.k==="visibleMessage"){const r=Android.visibleMessage(a.target,a.phone||"",a.body||"",a.packageName||"");if(r==="accessibility_off"){const m="To type and send messages visibly in other apps, enable Codex AI Accessibility in Android settings. I’m opening the setting now.";addMsg("ai",m);hint(m);Android.accessibilitySettings()}else if(r!=="ok"){const m="I couldn’t start that action. Check that the app is installed.";addMsg("ai",m);hint(m)}}
     else if(a.k==="url")Android.openUrl(a.u);
-    else if(a.k==="dev")Android.device(a.c,a.a||"");
+    else if(a.k==="dev"){const r=Android.device(a.c,a.a||"");if(r==="error"){const m="That didn’t work on this phone.";addMsg("ai",m);hint(m);speak(m)}else if(a.c==="music"&&r==="web"){const m="I couldn’t find a music app, so I opened a YouTube search.";addMsg("ai",m);hint(m)}}
+    else if(a.k==="ai")Android.askApp(a.pkg,a.q,a.web);
     else if(a.k==="app"){if(!Android.openApp(a.name)){const m="I couldn’t find an app called "+a.name+", so I’m looking for its website.";addMsg("ai",m);hint(m);speak(m,"https://www.google.com/search?btnI=1&q="+encodeURIComponent(a.name+" official website"))}}
   }else if(go)Android.openUrl(go);
 }
@@ -373,21 +388,9 @@ function nativePerform(go,a){
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null,listening=false;
 function handle(text){
-  const command=norm(text);
-  if(/^(stop listening|stop hands ?free|turn off hands ?free|disable hands ?free|go to sleep)$/.test(command)){
-    S.hands=false;$("hf").classList.remove("on");save();
-    addMsg("you",text);addMsg("ai","Hands-free is off. Tap the microphone whenever you want me again.");
-    hint("Hands-free is off");setState("idle");
-    if(NATIVE)Android.stopListen();else{try{rec&&rec.abort()}catch(e){}}
-    listening=false;return;
-  }
-  if(/^(start listening|start hands ?free|turn on hands ?free|enable hands ?free|keep listening)$/.test(command)){
-    S.hands=true;$("hf").classList.add("on");save();
-    addMsg("you",text);addMsg("ai","Hands-free is on. I’ll keep listening after I reply.");
-    hint("Hands-free is on");setTimeout(()=>{if(S.hands&&!listening)listen()},350);return;
-  }
+  if(/^(?:stop|stop talking|be quiet|quiet|cancel|shut up)[.!]?$/i.test(text.trim())){stopCloud();if(NATIVE)Android.stopSpeak();else if(hasTTS)speechSynthesis.cancel();setState("idle");hint("Stopped.");return}
   addMsg("you",text);setState("thinking");hint("Thinking…");
-  const r=think(text);
+  const parts=splitCmds(text),r=parts?runMany(parts):think(text);
   if(r.ai&&aiReady()){
     askAI(text).then(a=>{addMsg("ai",a);hint("Tap the glowing orb to speak");speak(a)}).catch(e=>{const m=aiErr(e&&e.status);addMsg("ai",m);hint(m+aiDetail(e));speak(m)});
     return;
@@ -401,7 +404,7 @@ function listen(){
   if(!SR){hint("Voice input isn’t available here. Use the keyboard button to type.");return}
   if(listening){try{rec.stop()}catch(e){}return}
   if(hasTTS)speechSynthesis.cancel();
-  rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=false;
+  rec=new SR();rec.lang=S.lang;rec.interimResults=true;rec.continuous=false;
   let fin="";
   rec.onstart=()=>{listening=true;setState("listening");hint("Listening…")};
   rec.onresult=e=>{let s="";for(const r of e.results){s+=r[0].transcript;if(r.isFinal)fin=s}hint(s||"Listening…")};
@@ -422,27 +425,37 @@ function post(url,headers,body){
     if(NATIVE){
       const id="h"+Date.now()+Math.floor(Math.random()*1e6);
       httpPend[id]=(status,text)=>status>0?res({status:status,text:text}):rej({status:0});
-      setTimeout(()=>{if(httpPend[id]){delete httpPend[id];rej({status:0})}},30000);
+      setTimeout(()=>{if(httpPend[id]){delete httpPend[id];rej({status:0})}},20000);
       Android.http(id,url,JSON.stringify(headers),body);
     }else fetch(url,{method:"POST",headers:headers,body:body}).then(r=>r.text().then(t=>res({status:r.status,text:t}))).catch(()=>rej({status:0}));
   });
 }
 window.nativeHttp=(id,status,text)=>{const f=httpPend[id];if(f){delete httpPend[id];f(status,text)}};
 async function askAI(q){
+  if(typeof navigator!=="undefined"&&navigator.onLine===false)throw{status:0,msg:"You are offline"};
   const c=S.ai,k=KEYOF(),m=(c.m||"").trim()||AI_DEF[c.p];
   const turns=hist.slice(-6).concat([{r:"user",t:q}]);
-  let url,headers,body;
-  if(c.p==="gemini"){
-    url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(m)+":generateContent";
-    headers={"Content-Type":"application/json","x-goog-api-key":k};
-    body=JSON.stringify({systemInstruction:{parts:[{text:SYS}]},contents:turns.map(x=>({role:x.r==="user"?"user":"model",parts:[{text:x.t}]}))});
-  }else{
-    url=c.p==="openai"?"https://api.openai.com/v1/chat/completions":"https://api.x.ai/v1/chat/completions";
-    headers={"Content-Type":"application/json","Authorization":"Bearer "+k};
-    body=JSON.stringify({model:m,messages:[{role:"system",content:SYS}].concat(turns.map(x=>({role:x.r,content:x.t})))});
-  }
-  let r=await post(url,headers,body);
-  if(r.status>=500){await new Promise(z=>setTimeout(z,1500));r=await post(url,headers,body)}
+  const useWeb=c.p==="gemini"&&needsWeb(q);
+  const send=async web=>{
+    let url,headers,body;
+    if(c.p==="gemini"){
+      url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(m)+":generateContent";
+      headers={"Content-Type":"application/json","x-goog-api-key":k};
+      const o={systemInstruction:{parts:[{text:SYS}]},contents:turns.map(x=>({role:x.r==="user"?"user":"model",parts:[{text:x.t}]}))};
+      if(web)o.tools=[{google_search:{}}];
+      body=JSON.stringify(o);
+    }else{
+      url=c.p==="openai"?"https://api.openai.com/v1/chat/completions":"https://api.x.ai/v1/chat/completions";
+      headers={"Content-Type":"application/json","Authorization":"Bearer "+k};
+      body=JSON.stringify({model:m,messages:[{role:"system",content:SYS}].concat(turns.map(x=>({role:x.r,content:x.t})))});
+    }
+    let r;
+    try{r=await post(url,headers,body)}catch(e){if(e&&e.status===0)r=await post(url,headers,body);else throw e}
+    if(r.status>=500){await new Promise(z=>setTimeout(z,1500));r=await post(url,headers,body)}
+    return r;
+  };
+  let r=await send(useWeb);
+  if(useWeb&&(r.status===400||r.status===404))r=await send(false);
   if(r.status<200||r.status>=300){let msg="";try{const er=JSON.parse(r.text);msg=(er.error&&er.error.message)||""}catch(x){msg=(r.text||"").slice(0,100)}throw{status:r.status,msg:msg}}
   let j;try{j=JSON.parse(r.text)}catch(e){throw{status:-1,msg:"Unreadable reply: "+(r.text||"").slice(0,100)}}
   let out="";
@@ -488,7 +501,7 @@ function buildChain(ctx,src){
   cv.buffer=hallIR(ctx);rw.gain.value=.15+.35*amt;lp.connect(cv);cv.connect(rw);rw.connect(out);
   const comp=ctx.createDynamicsCompressor();out.connect(comp);comp.connect(ctx.destination);
 }
-async function cloudSpeak(text,end){
+async function cloudSpeak(text,end,ok){
   const k=KEYOF(),m=(S.tts.m||"").trim()||TTS_DEF;
   const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(m)+":generateContent";
   const body=JSON.stringify({contents:[{parts:[{text:text.slice(0,600)}]}],generationConfig:{responseModalities:["AUDIO"],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:S.tts.v||"Kore"}}}}});
@@ -503,6 +516,7 @@ async function cloudSpeak(text,end){
   for(let i=0;i<n;i++){let x=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(x>=32768)x-=65536;f[i]=x/32768}
   const ctx=await getCtx();
   const buf=ctx.createBuffer(1,n,rate);buf.copyToChannel(f,0);
+  if(ok&&!ok())return;
   playBuf(ctx,buf,end);
 }
 async function getCtx(){
@@ -533,13 +547,14 @@ function postBin(url,headers,body){
     }else fetch(url,{method:"POST",headers:headers,body:body}).then(async r=>{if(r.ok)res({status:r.status,buf:await r.arrayBuffer()});else{const t=await r.text();res({status:r.status,errText:t.slice(0,140)})}}).catch(()=>rej({status:0}));
   });
 }
-async function elSpeak(text,end){
+async function elSpeak(text,end,ok){
   const url="https://api.elevenlabs.io/v1/text-to-speech/"+encodeURIComponent(S.el.id)+"?output_format=mp3_44100_128";
   const body=JSON.stringify({text:text.slice(0,600),model_id:(S.el.m||"").trim()||EL_DEF});
   const r=await postBin(url,{"Content-Type":"application/json","xi-api-key":S.el.k.trim()},body);
   if(r.status<200||r.status>=300)throw{status:r.status,msg:r.errText};
   const ctx=await getCtx();
   const buf=await new Promise((res,rej)=>ctx.decodeAudioData(r.buf,res,rej));
+  if(ok&&!ok())return;
   playBuf(ctx,buf,end);
 }
 CV.forEach(x=>{const o=document.createElement("option");o.value=x[0];o.textContent=x[0]+" · "+x[1];$("cvoice").appendChild(o)});
@@ -549,6 +564,7 @@ $("ttsm").value=S.tts.m;$("ttsm").placeholder="TTS model (default: "+TTS_DEF+")"
 $("echo").checked=!!S.echo;$("echo").onchange=e=>{S.echo=e.target.checked;save()};
 $("eamt").value=S.echoAmt;$("eamt").oninput=e=>{S.echoAmt=+e.target.value;save()};
 
+$("slang").value=S.lang;$("slang").onchange=e=>{S.lang=e.target.value;save();if(NATIVE)Android.setLang(S.lang)};if(NATIVE)Android.setLang(S.lang);
 const vm=()=>{$("pchoose").style.display=S.mode==="choose"?"block":"none";$("pclone").style.display=S.mode==="clone"?"block":"none"};
 $("vmode").value=S.mode;vm();$("vmode").onchange=e=>{S.mode=e.target.value;save();vm()};
 $("elk").value=S.el.k;$("elk").oninput=e=>{S.el.k=e.target.value.trim();save()};
@@ -596,18 +612,18 @@ renderApps();
 /* ---------- native app callbacks ---------- */
 window.nativeListening=()=>{listening=true;setState("listening");hint("Listening…")};
 window.nativePartial=t=>hint(t||"Listening…");
-window.nativeResult=t=>{listening=false;if(manualListenStop){manualListenStop=false;setState("idle");return}handle(t)};
-let manualListenStop=false;
-window.nativeError=c=>{listening=false;if(manualListenStop){manualListenStop=false;setState("idle");return}setState("idle");hint(c==="blocked"?"Microphone permission needed. Allow it, then tap again.":c==="none"?"I didn’t catch that. Tap to try again.":c==="unavailable"?"Speech recognition isn’t available. Enable the Google app.":"Something went wrong. Tap to try again.")};
+let miss=0;
+window.nativeResult=t=>{listening=false;miss=0;handle(t)};
+window.nativeError=c=>{listening=false;setState("idle");if(c==="none"&&S.hands&&miss<2){miss++;hint("Didn’t catch that, listening again…");setTimeout(listen,500);return}miss=0;hint(c==="blocked"?"Microphone permission needed. Allow it, then tap again.":c==="none"?"I didn’t catch that. Tap to try again.":c==="unavailable"?"Speech recognition isn’t available. Enable the Google app.":"Something went wrong. Tap to try again.")};
 window.nativeSpeakStart=()=>setState("speaking");
 window.nativeSpeakEnd=()=>{if(curEnd)curEnd()};
 
 /* ---------- events ---------- */
 $("orb").onclick=listen;$("mic").onclick=listen;
-$("stop").onclick=()=>{S.hands=false;$("hf").classList.remove("on");save();stopCloud();if(NATIVE){manualListenStop=true;Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Hands-free stopped")};
+$("stop").onclick=()=>{stopCloud();if(NATIVE){Android.stopSpeak();Android.stopListen()}else if(hasTTS)speechSynthesis.cancel();try{rec&&rec.abort()}catch(e){}listening=false;setState("idle");hint("Tap the glowing orb to speak")};
 $("kb").onclick=()=>{$("tf").classList.toggle("show");if($("tf").classList.contains("show"))$("ti").focus()};
 $("tf").onsubmit=e=>{e.preventDefault();const v=$("ti").value.trim();if(v){$("ti").value="";handle(v)}};
-$("hf").onclick=()=>{S.hands=!S.hands;$("hf").classList.toggle("on",S.hands);save();hint(S.hands?"Hands-free is on":"Hands-free is off");if(S.hands&&!listening)setTimeout(()=>{if(S.hands&&!listening)listen()},250);else if(!S.hands&&listening){if(NATIVE){manualListenStop=true;Android.stopListen()}else{try{rec&&rec.abort()}catch(e){}}listening=false;setState("idle")}};
+$("hf").onclick=()=>{S.hands=!S.hands;$("hf").classList.toggle("on",S.hands);save();hint(S.hands?"Hands-free is on":"Hands-free is off")};
 $("gear").onclick=()=>{if(NATIVE)fillVoices();$("set").classList.add("show")};
 $("close").onclick=()=>$("set").classList.remove("show");
 $("vsel").onchange=e=>{S.voice=e.target.value;save()};
